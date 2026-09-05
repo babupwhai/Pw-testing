@@ -192,7 +192,19 @@ export const getBotConnection = createServerFn({ method: "GET" })
         pending_update_count?: number;
         last_error_message?: string;
       }>("getWebhookInfo");
-      if (hook.ok) webhook = hook.result;
+      if (hook.ok) {
+        webhook = hook.result;
+        const allowed = (hook.result as { allowed_updates?: string[] }).allowed_updates ?? [];
+        if (!allowed.includes("callback_query")) {
+          const { ensureCallbackQueries } = await import("@/lib/telegram.server");
+          const repaired = await ensureCallbackQueries();
+          if (!repaired.ok) error = repaired.error;
+          else {
+            const refreshed = await tgCall<typeof hook.result>("getWebhookInfo");
+            if (refreshed.ok) webhook = refreshed.result;
+          }
+        }
+      }
     }
 
     return {
@@ -246,7 +258,7 @@ export const connectBot = createServerFn({ method: "POST" })
     const hook = await tgCall("setWebhook", {
       url: webhookUrl,
       secret_token: webhookSecretFor(token),
-      allowed_updates: ["message", "edited_message"],
+      allowed_updates: ["message", "edited_message", "callback_query"],
       drop_pending_updates: true,
       max_connections: 40,
     });

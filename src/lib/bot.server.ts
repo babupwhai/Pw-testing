@@ -5,6 +5,7 @@ import {
   deleteMessage,
   downloadTelegramFile,
   editMessage,
+  ensureCallbackQueries,
   sendMessage,
   tgCall,
 } from "@/lib/telegram.server";
@@ -109,6 +110,12 @@ async function askQuality(
   user: BotUser,
   link: { url: string; title?: string },
 ): Promise<boolean> {
+  const callbackSetup = await ensureCallbackQueries();
+  if (!callbackSetup.ok) {
+    await sendMessage(chatId, `❌ Quality buttons activate nahi hue: ${escapeHtml(callbackSetup.error)}`);
+    return true;
+  }
+
   let info: Awaited<ReturnType<typeof probeStream>>;
   const probing = await sendMessage(chatId, "🔍 Stream check kar raha hoon (quality & size)…");
   const probeId = probing.ok ? probing.result.message_id : null;
@@ -236,6 +243,16 @@ export async function handleCallback(cb: TgCallbackQuery): Promise<void> {
     })
     .eq("id", job.id)
     .eq("status", "awaiting_quality");
+
+  const { data: queued } = await supabaseAdmin
+    .from("jobs")
+    .select("status")
+    .eq("id", job.id)
+    .maybeSingle();
+  if (queued?.status !== "queued") {
+    await answer("Selection save nahi hui. Dobara link bhejo.");
+    return;
+  }
 
   await answer(`${picked.label} select ho gayi`);
   if (job.status_message_id) {

@@ -8,6 +8,7 @@ type Transport =
   | { mode: "gateway"; base: string; fileBase: string; headers: Record<string, string> };
 
 let cached: { transport: Transport; at: number } | null = null;
+let callbacksEnsuredAt = 0;
 const CACHE_MS = 15_000;
 
 export async function getBotToken(): Promise<string | null> {
@@ -59,6 +60,33 @@ async function transport(): Promise<Transport> {
 
 export function clearTelegramCache() {
   cached = null;
+  callbacksEnsuredAt = 0;
+}
+
+/** Keeps old bot connections subscribed to inline-button clicks after upgrades. */
+export async function ensureCallbackQueries(): Promise<TgResult<true>> {
+  if (Date.now() - callbacksEnsuredAt < 5 * 60_000) return { ok: true, result: true };
+
+  const token = await getBotToken();
+  if (!token) return { ok: false, error: "Bot token not set" };
+  const { data } = await supabaseAdmin
+    .from("settings")
+    .select("webhook_url")
+    .eq("id", 1)
+    .maybeSingle();
+  const webhookUrl = data?.webhook_url?.trim();
+  if (!webhookUrl) return { ok: false, error: "Webhook URL not set" };
+
+  const result = await tgCall("setWebhook", {
+    url: webhookUrl,
+    secret_token: webhookSecretFor(token),
+    allowed_updates: ["message", "edited_message", "callback_query"],
+    drop_pending_updates: false,
+    max_connections: 40,
+  });
+  if (!result.ok) return result;
+  callbacksEnsuredAt = Date.now();
+  return { ok: true, result: true };
 }
 
 export type TgResult<T = unknown> = { ok: true; result: T } | { ok: false; error: string };
