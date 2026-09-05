@@ -445,6 +445,11 @@ async function handleCommand(
 }
 
 export async function handleUpdate(update: TgUpdate): Promise<void> {
+  if (update.callback_query) {
+    await upsertUser(update.callback_query.from);
+    await handleCallback(update.callback_query);
+    return;
+  }
   const message = update.message ?? update.edited_message;
   if (!message?.chat?.id || !message.from) return;
 

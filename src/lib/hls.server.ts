@@ -178,7 +178,15 @@ export async function buildPart(
   deadline: number,
   onProgress?: (done: number, total: number) => void,
 ): Promise<PartResult> {
-  const playlist = parseMedia(await fetchText(mediaUrl), mediaUrl);
+  let text = await fetchText(mediaUrl);
+  let url = mediaUrl;
+  if (text.includes("#EXT-X-STREAM-INF")) {
+    const best = parseMaster(text, mediaUrl)[0];
+    if (!best) throw new Error("No playable stream found in playlist");
+    url = best.url;
+    text = await fetchText(url);
+  }
+  const playlist = parseMedia(text, url);
   if (!playlist.segments.length) throw new Error("Playlist has no segments");
 
   const total = playlist.segments.length;
