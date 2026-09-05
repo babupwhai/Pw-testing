@@ -67,7 +67,7 @@ export const getOverview = createServerFn({ method: "GET" })
 
 export const listJobs = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: { status?: string } | undefined) => input ?? {})
+  .validator((input: { status?: string } | undefined) => input ?? {})
   .handler(async ({ data, context }) => {
     await assertAdmin(context);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
