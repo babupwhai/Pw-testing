@@ -1,10 +1,10 @@
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Database } from "@/integrations/supabase/types";
 import { detectKind, fileNameFromUrl, humanSize } from "@/lib/link-utils";
-import { hlsToMp4 } from "@/lib/hls.server";
+import { buildPart } from "@/lib/hls.server";
 import { editMessage, sendMessage, tgCall, tgUpload } from "@/lib/telegram.server";
 
-const UPLOAD_CEILING = 48 * 1024 * 1024; // Bot API limit for our own uploads
+const UPLOAD_CEILING = 48 * 1024 * 1024; // Bot API limit for a single file
 
 export type Settings = {
   default_daily_limit: number;
@@ -12,20 +12,23 @@ export type Settings = {
   parallel_jobs: number;
   allow_all_users: boolean;
   welcome_text: string | null;
+  max_part_mb: number;
 };
 
 export async function getSettings(): Promise<Settings> {
   const { data } = await supabaseAdmin.from("settings").select("*").eq("id", 1).maybeSingle();
+  const row = data as (Record<string, unknown> & { max_part_mb?: number }) | null;
   return {
     default_daily_limit: data?.default_daily_limit ?? 50,
     max_file_mb: data?.max_file_mb ?? 2000,
     parallel_jobs: data?.parallel_jobs ?? 3,
     allow_all_users: data?.allow_all_users ?? true,
     welcome_text: data?.welcome_text ?? null,
+    max_part_mb: row?.max_part_mb ?? 45,
   };
 }
 
-type JobRow = {
+export type JobRow = {
   id: string;
   chat_id: number;
   telegram_id: number;
@@ -35,6 +38,11 @@ type JobRow = {
   attempts: number;
   status_message_id: number | null;
   batch_id: string | null;
+  stream_url: string | null;
+  selected_quality: string | null;
+  segment_cursor: number;
+  part_index: number;
+  parts_sent: number;
 };
 
 function captionFor(job: JobRow, fileName: string) {
@@ -75,14 +83,12 @@ async function sendByUpload(
 
   const declared = Number(res.headers.get("content-length") ?? 0);
   if (declared && declared > maxBytes) {
-    throw new Error(`File is ${humanSize(declared)} — Telegram allows up to ${humanSize(maxBytes)}`);
+    throw new Error(`TOO_LARGE:${declared}`);
   }
 
   const buffer = new Uint8Array(await res.arrayBuffer());
   if (buffer.byteLength > maxBytes) {
-    throw new Error(
-      `File is ${humanSize(buffer.byteLength)} — Telegram allows up to ${humanSize(maxBytes)}`,
-    );
+    throw new Error(`TOO_LARGE:${buffer.byteLength}`);
   }
 
   const type = res.headers.get("content-type") ?? "application/octet-stream";
@@ -101,7 +107,7 @@ async function sendByUpload(
   return { result, size: buffer.byteLength };
 }
 
-type JobUpdate = Database["public"]["Tables"]["jobs"]["Update"];
+type JobUpdate = Database["public"]["Tables"]["jobs"]["Update"] & Record<string, unknown>;
 
 async function updateJob(id: string, patch: JobUpdate) {
   await supabaseAdmin.from("jobs").update(patch).eq("id", id);
@@ -126,7 +132,117 @@ async function bumpBatch(batchId: string | null, ok: boolean) {
   }
 }
 
-export async function processJob(job: JobRow, settings: Settings): Promise<void> {
+async function uploadVideoPart(
+  job: JobRow,
+  bytes: Uint8Array,
+  fileName: string,
+  caption: string,
+) {
+  const form = new FormData();
+  form.append("chat_id", String(job.chat_id));
+  form.append("caption", caption);
+  form.append("parse_mode", "HTML");
+  form.append("supports_streaming", "true");
+  form.append("video", new Blob([bytes as unknown as BlobPart], { type: "video/mp4" }), fileName);
+  return tgUpload<{ message_id: number }>("sendVideo", form);
+}
+
+/**
+ * Streams an HLS lecture of ANY size: it is delivered as consecutive playable
+ * parts, and progress is saved so the next run continues where this one stopped.
+ */
+async function processHls(job: JobRow, settings: Settings, deadline: number) {
+  const mediaUrl = job.stream_url ?? job.url;
+  const partBytes = Math.min(UPLOAD_CEILING, Math.max(5, settings.max_part_mb) * 1024 * 1024);
+  const baseName =
+    fileNameFromUrl(job.url, "video").replace(/\.m3u8.*$/i, "") || (job.title ?? "video");
+  const statusId = job.status_message_id;
+  const quality = job.selected_quality ? ` • ${job.selected_quality}` : "";
+
+  let cursor = job.segment_cursor;
+  let part = job.part_index;
+  let sent = job.parts_sent;
+  const startedAt = Date.now();
+
+  for (;;) {
+    if (statusId) {
+      await editMessage(
+        job.chat_id,
+        statusId,
+        `🎬 Part <b>${part + 1}</b> ban raha hai${quality}…\n<code>${escapeHtml(baseName)}</code>`,
+      );
+    }
+
+    const result = await buildPart(mediaUrl, cursor, partBytes, deadline - 20_000);
+
+    if (result.bytes.byteLength) {
+      const label = result.done && part === 0 ? "" : ` part ${part + 1}`;
+      const fileName = `${baseName}${label}.mp4`.replace(/\s+/g, " ");
+      const caption =
+        `${job.title ? `${escapeHtml(job.title)}\n` : ""}<code>${escapeHtml(fileName)}</code>` +
+        `${job.selected_quality ? `\n${escapeHtml(job.selected_quality)}` : ""}` +
+        `${result.done && part === 0 ? "" : `\nPart ${part + 1}`}`;
+      const up = await uploadVideoPart(job, result.bytes, fileName, caption);
+      if (!up.ok) throw new Error(up.error);
+      part += 1;
+      sent += 1;
+    }
+
+    cursor = result.nextIndex;
+    const pct = result.totalSegments
+      ? Math.min(100, Math.round((cursor / result.totalSegments) * 100))
+      : 0;
+
+    await updateJob(job.id, {
+      segment_cursor: cursor,
+      part_index: part,
+      parts_sent: sent,
+      progress: pct,
+    });
+
+    if (result.done) {
+      await updateJob(job.id, {
+        status: "done",
+        progress: 100,
+        file_name: `${baseName}.mp4`,
+        method: "hls",
+        ms_taken: Date.now() - startedAt,
+        finished_at: new Date().toISOString(),
+        error: null,
+      });
+      await bumpBatch(job.batch_id, true);
+      if (statusId) {
+        await editMessage(
+          job.chat_id,
+          statusId,
+          sent > 1
+            ? `✅ Poora lecture bhej diya — <b>${sent}</b> parts${quality}.`
+            : `✅ Sent: <code>${escapeHtml(baseName)}.mp4</code>${quality}`,
+        );
+      }
+      return;
+    }
+
+    if (Date.now() > deadline - 25_000) {
+      // Park the job; the next queue run resumes from the saved cursor.
+      await updateJob(job.id, { status: "queued" });
+      if (statusId) {
+        await editMessage(
+          job.chat_id,
+          statusId,
+          `⏳ ${pct}% done — <b>${sent}</b> parts bheje. Baaki thodi der me aayega${quality}.`,
+        );
+      }
+      return;
+    }
+  }
+}
+
+export async function processJob(
+  job: JobRow,
+  settings: Settings,
+  deadline = Date.now() + 40_000,
+): Promise<void> {
   const startedAt = Date.now();
   const maxBytes = Math.min(UPLOAD_CEILING, settings.max_file_mb * 1024 * 1024);
   const kind = job.kind === "auto" ? detectKind(job.url) : (job.kind as "video" | "document" | "hls");
@@ -145,33 +261,7 @@ export async function processJob(job: JobRow, settings: Settings): Promise<void>
 
   try {
     if (kind === "hls") {
-      const fileName = fileNameFromUrl(job.url, "video").replace(/\.m3u8$/i, "") + ".mp4";
-      await setStatus(`🎬 Building video from stream…\n<code>${escapeHtml(fileName)}</code>`);
-      const { bytes, truncated } = await hlsToMp4(job.url);
-      if (!bytes.byteLength) throw new Error("Stream produced no video data");
-
-      const form = new FormData();
-      form.append("chat_id", String(job.chat_id));
-      form.append("caption", captionFor(job, fileName));
-      form.append("parse_mode", "HTML");
-      form.append("supports_streaming", "true");
-      form.append("video", new Blob([bytes as unknown as BlobPart], { type: "video/mp4" }), fileName);
-      const sent = await tgUpload("sendVideo", form);
-      if (!sent.ok) throw new Error(sent.error);
-
-      if (truncated) {
-        await sendMessage(
-          job.chat_id,
-          "⚠️ Stream bada tha, sirf pehla hissa bheja gaya (Telegram 50MB limit).",
-        );
-      }
-      await finish(job, {
-        file_name: fileName,
-        file_size: bytes.byteLength,
-        method: "hls",
-        ms: Date.now() - startedAt,
-      });
-      if (statusId) await editMessage(job.chat_id, statusId, `✅ Sent: <code>${escapeHtml(fileName)}</code>`);
+      await processHls(job, settings, deadline);
       return;
     }
 
@@ -198,12 +288,31 @@ export async function processJob(job: JobRow, settings: Settings): Promise<void>
     if (statusId) await editMessage(job.chat_id, statusId, `✅ Sent: <code>${escapeHtml(fileName)}</code>`);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+
+    // Single files above Telegram's per-file ceiling: hand over the direct link.
+    const tooLarge = /^TOO_LARGE:(\d+)$/.exec(message);
+    if (tooLarge) {
+      const size = Number(tooLarge[1]);
+      const fileName = fileNameFromUrl(job.url, "file");
+      await sendMessage(
+        job.chat_id,
+        `📦 <b>${escapeHtml(fileName)}</b> — ${humanSize(size)}\nTelegram ek file me ${humanSize(maxBytes)} se zyada nahi leta, isliye direct download link:\n${escapeHtml(job.url)}`,
+      );
+      await finish(job, {
+        file_name: fileName,
+        file_size: size,
+        method: "link",
+        ms: Date.now() - startedAt,
+      });
+      if (statusId) await editMessage(job.chat_id, statusId, `🔗 Link bhej diya: <code>${escapeHtml(fileName)}</code>`);
+      return;
+    }
+
     await updateJob(job.id, {
       status: "failed",
       error: message.slice(0, 500),
       finished_at: new Date().toISOString(),
       ms_taken: Date.now() - startedAt,
-      progress: 0,
     });
     await bumpBatch(job.batch_id, false);
     if (statusId) {
@@ -231,7 +340,8 @@ async function finish(
   await bumpBatch(job.batch_id, true);
 }
 
-const JOB_FIELDS = "id, chat_id, telegram_id, url, title, kind, attempts, status_message_id, batch_id";
+const JOB_FIELDS =
+  "id, chat_id, telegram_id, url, title, kind, attempts, status_message_id, batch_id, stream_url, selected_quality, segment_cursor, part_index, parts_sent";
 
 /** Claims and runs queued jobs until the time budget runs out. */
 export async function runQueue(budgetMs = 40_000): Promise<{ processed: number; remaining: number }> {
@@ -239,7 +349,7 @@ export async function runQueue(budgetMs = 40_000): Promise<{ processed: number; 
   const deadline = Date.now() + budgetMs;
   let processed = 0;
 
-  while (Date.now() < deadline) {
+  while (Date.now() < deadline - 5_000) {
     const { data: queued } = await supabaseAdmin
       .from("jobs")
       .select(JOB_FIELDS)
@@ -251,7 +361,7 @@ export async function runQueue(budgetMs = 40_000): Promise<{ processed: number; 
     if (!queued?.length) break;
 
     const claimed: JobRow[] = [];
-    for (const job of queued as JobRow[]) {
+    for (const job of queued as unknown as JobRow[]) {
       const { data } = await supabaseAdmin
         .from("jobs")
         .update({ status: "claimed" })
@@ -262,7 +372,18 @@ export async function runQueue(budgetMs = 40_000): Promise<{ processed: number; 
     }
     if (!claimed.length) break;
 
-    await Promise.all(claimed.map((job) => processJob(job, settings)));
+    const streams = claimed.filter((j) => j.kind === "hls");
+    const rest = claimed.filter((j) => j.kind !== "hls");
+
+    // Streams are memory heavy, so they run one at a time; plain links go parallel.
+    await Promise.all(rest.map((job) => processJob(job, settings, deadline)));
+    for (const job of streams) {
+      if (Date.now() > deadline - 20_000) {
+        await updateJob(job.id, { status: "queued" });
+        continue;
+      }
+      await processJob(job, settings, deadline);
+    }
     processed += claimed.length;
   }
 
