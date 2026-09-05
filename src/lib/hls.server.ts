@@ -35,11 +35,14 @@ function pickVariant(text: string, base: string): string | null {
   return variants[0]!.url;
 }
 
+type Bytes = Uint8Array<ArrayBuffer>;
+
 type MediaPlaylist = {
   segments: string[];
   initSegment?: string;
-  key?: { url: string; iv?: Uint8Array };
+  key?: { url: string; iv: Bytes | undefined };
 };
+
 
 function parseMedia(text: string, base: string): MediaPlaylist {
   const lines = text.split(/\r?\n/);
