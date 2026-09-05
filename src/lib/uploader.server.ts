@@ -17,14 +17,13 @@ export type Settings = {
 
 export async function getSettings(): Promise<Settings> {
   const { data } = await supabaseAdmin.from("settings").select("*").eq("id", 1).maybeSingle();
-  const row = data as (Record<string, unknown> & { max_part_mb?: number }) | null;
   return {
     default_daily_limit: data?.default_daily_limit ?? 50,
     max_file_mb: data?.max_file_mb ?? 2000,
     parallel_jobs: data?.parallel_jobs ?? 3,
     allow_all_users: data?.allow_all_users ?? true,
     welcome_text: data?.welcome_text ?? null,
-    max_part_mb: row?.max_part_mb ?? 45,
+    max_part_mb: data?.max_part_mb ?? 45,
   };
 }
 
@@ -107,7 +106,7 @@ async function sendByUpload(
   return { result, size: buffer.byteLength };
 }
 
-type JobUpdate = Database["public"]["Tables"]["jobs"]["Update"] & Record<string, unknown>;
+type JobUpdate = Database["public"]["Tables"]["jobs"]["Update"];
 
 async function updateJob(id: string, patch: JobUpdate) {
   await supabaseAdmin.from("jobs").update(patch).eq("id", id);
