@@ -14,10 +14,10 @@ async function fetchText(url: string) {
   return res.text();
 }
 
-async function fetchBytes(url: string) {
+async function fetchBytes(url: string): Promise<Bytes> {
   const res = await fetch(url, { headers: { "user-agent": "Mozilla/5.0" } });
   if (!res.ok) throw new Error(`Segment fetch failed (${res.status})`);
-  return new Uint8Array(await res.arrayBuffer());
+  return new Uint8Array(await res.arrayBuffer()) as Bytes;
 }
 
 function pickVariant(text: string, base: string): string | null {
@@ -75,23 +75,23 @@ function parseMedia(text: string, base: string): MediaPlaylist {
   return out;
 }
 
-function hexToBytes(hex: string): Uint8Array {
-  const bytes = new Uint8Array(hex.length / 2);
+function hexToBytes(hex: string): Bytes {
+  const bytes = new Uint8Array(new ArrayBuffer(hex.length / 2)) as Bytes;
   for (let i = 0; i < bytes.length; i += 1) {
     bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
   }
   return bytes;
 }
 
-function ivForSequence(seq: number): Uint8Array {
-  const iv = new Uint8Array(16);
+function ivForSequence(seq: number): Bytes {
+  const iv = new Uint8Array(new ArrayBuffer(16)) as Bytes;
   new DataView(iv.buffer).setUint32(12, seq);
   return iv;
 }
 
-function concat(chunks: Uint8Array[]): Uint8Array {
+function concat(chunks: Bytes[]): Bytes {
   const total = chunks.reduce((sum, c) => sum + c.length, 0);
-  const out = new Uint8Array(total);
+  const out = new Uint8Array(new ArrayBuffer(total)) as Bytes;
   let offset = 0;
   for (const c of chunks) {
     out.set(c, offset);
@@ -100,7 +100,7 @@ function concat(chunks: Uint8Array[]): Uint8Array {
   return out;
 }
 
-export type HlsResult = { bytes: Uint8Array; segments: number; truncated: boolean };
+export type HlsResult = { bytes: Bytes; segments: number; truncated: boolean };
 
 /**
  * Downloads an HLS playlist and produces one playable MP4 in memory.
@@ -131,7 +131,7 @@ export async function hlsToMp4(
   }
 
   const isFmp4 = Boolean(playlist.initSegment);
-  const chunks: Uint8Array[] = [];
+  const chunks: Bytes[] = [];
   let total = 0;
   let truncated = false;
   let processed = 0;
@@ -141,8 +141,8 @@ export async function hlsToMp4(
     : new muxjs.mp4.Transmuxer({ remux: true, keepOriginalTimestamps: true });
   if (transmuxer) {
     transmuxer.on("data", (segment: { initSegment: Uint8Array; data: Uint8Array }) => {
-      chunks.push(new Uint8Array(segment.initSegment));
-      chunks.push(new Uint8Array(segment.data));
+      chunks.push(new Uint8Array(segment.initSegment) as Bytes);
+      chunks.push(new Uint8Array(segment.data) as Bytes);
       total += segment.initSegment.length + segment.data.length;
     });
   }
@@ -170,9 +170,9 @@ export async function hlsToMp4(
         const plain = await crypto.subtle.decrypt(
           { name: "AES-CBC", iv },
           cryptoKey,
-          data as unknown as BufferSource,
+          data,
         );
-        data = new Uint8Array(plain);
+        data = new Uint8Array(plain) as Bytes;
       }
 
       if (transmuxer) {
