@@ -93,6 +93,153 @@ export function limitFor(user: { daily_limit: number | null }, settings: Setting
 
 type BotUser = Awaited<ReturnType<typeof upsertUser>>;
 
+/**
+ * Shows every available quality with an estimated size and lets the user pick.
+ * Returns false when the stream has only one rendition (then we just queue it).
+ */
+async function askQuality(
+  chatId: number,
+  user: BotUser,
+  link: { url: string; title?: string },
+): Promise<boolean> {
+  let info: Awaited<ReturnType<typeof probeStream>>;
+  const probing = await sendMessage(chatId, "🔍 Stream check kar raha hoon (quality & size)…");
+  const probeId = probing.ok ? probing.result.message_id : null;
+  try {
+    info = await probeStream(link.url);
+  } catch (err) {
+    if (probeId) {
+      await editMessage(
+        chatId,
+        probeId,
+        `❌ Stream khul nahi paya: ${escapeHtml((err instanceof Error ? err.message : String(err)).slice(0, 200))}`,
+      );
+    }
+    return true;
+  }
+
+  if (info.variants.length < 2) {
+    if (probeId) await deleteMessage(chatId, probeId);
+    return false;
+  }
+
+  const variants = info.variants.slice(0, 8);
+  const { data: job } = await supabaseAdmin
+    .from("jobs")
+    .insert({
+      telegram_id: user.telegram_id,
+      chat_id: chatId,
+      url: link.url,
+      title: link.title ?? null,
+      kind: "hls",
+      status: "awaiting_quality",
+      status_message_id: probeId,
+      variants,
+    })
+    .select("id")
+    .single();
+
+  if (!job) {
+    if (probeId) await editMessage(chatId, probeId, "❌ Job banane me dikkat hui, dobara bhejo.");
+    return true;
+  }
+
+  const mins = info.durationSec ? Math.round(info.durationSec / 60) : null;
+  const lines = [
+    "🎯 <b>Quality choose karo</b>",
+    link.title ? escapeHtml(link.title) : "",
+    mins ? `⏱ Length: ~${mins} min` : "",
+    "",
+    ...variants.map(
+      (v, i) => `${i + 1}. <b>${escapeHtml(v.label)}</b> — ${v.estBytes ? humanSize(v.estBytes) : "size unknown"}`,
+    ),
+    "",
+    "Bade lecture parts me aayenge (Telegram ek file 50MB tak leta hai), poora video milega.",
+  ].filter(Boolean);
+
+  const keyboard = variants.map((v, i) => [
+    {
+      text: `${v.label} • ${v.estBytes ? humanSize(v.estBytes) : "?"}`,
+      callback_data: `q:${job.id}:${i}`,
+    },
+  ]);
+
+  const text = lines.join("\n");
+  if (probeId) {
+    await tgCall("editMessageText", {
+      chat_id: chatId,
+      message_id: probeId,
+      text,
+      parse_mode: "HTML",
+      disable_web_page_preview: true,
+      reply_markup: { inline_keyboard: keyboard },
+    });
+  } else {
+    await tgCall("sendMessage", {
+      chat_id: chatId,
+      text,
+      parse_mode: "HTML",
+      reply_markup: { inline_keyboard: keyboard },
+    });
+  }
+  return true;
+}
+
+export async function handleCallback(cb: TgCallbackQuery): Promise<void> {
+  const answer = (text: string) => tgCall("answerCallbackQuery", { callback_query_id: cb.id, text });
+  const parts = (cb.data ?? "").split(":");
+  if (parts[0] !== "q" || !parts[1]) {
+    await answer("");
+    return;
+  }
+  const jobId = parts[1];
+  const index = Number(parts[2] ?? 0);
+
+  const { data: job } = await supabaseAdmin
+    .from("jobs")
+    .select("id, telegram_id, chat_id, variants, status, status_message_id, title")
+    .eq("id", jobId)
+    .maybeSingle();
+
+  if (!job || job.telegram_id !== cb.from.id) {
+    await answer("Ye choice aapki nahi hai.");
+    return;
+  }
+  if (job.status !== "awaiting_quality") {
+    await answer("Ye already start ho chuka hai.");
+    return;
+  }
+
+  const variants = (job.variants ?? []) as { url: string; label: string; estBytes: number | null }[];
+  const picked = variants[index];
+  if (!picked) {
+    await answer("Quality mil nahi rahi.");
+    return;
+  }
+
+  await supabaseAdmin
+    .from("jobs")
+    .update({
+      status: "queued",
+      stream_url: picked.url,
+      selected_quality: picked.label,
+      segment_cursor: 0,
+      part_index: 0,
+      parts_sent: 0,
+    })
+    .eq("id", job.id)
+    .eq("status", "awaiting_quality");
+
+  await answer(`${picked.label} select ho gayi`);
+  if (job.status_message_id) {
+    await editMessage(
+      job.chat_id,
+      job.status_message_id,
+      `⏬ <b>${escapeHtml(picked.label)}</b> download shuru${picked.estBytes ? ` (~${humanSize(picked.estBytes)})` : ""}…`,
+    );
+  }
+}
+
 async function queueLinks(
   chatId: number,
   user: BotUser,
