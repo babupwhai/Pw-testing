@@ -67,7 +67,7 @@ export const getOverview = createServerFn({ method: "GET" })
 
 export const listJobs = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: { status?: string } | undefined) => input ?? {})
+  .validator((input: { status?: string } | undefined) => input ?? {})
   .handler(async ({ data, context }) => {
     await assertAdmin(context);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -85,7 +85,7 @@ export const listJobs = createServerFn({ method: "GET" })
 
 export const retryJob = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: { id: string }) => input)
+  .validator((input: { id: string }) => input)
   .handler(async ({ data, context }) => {
     await assertAdmin(context);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -118,7 +118,7 @@ export const listUsers = createServerFn({ method: "GET" })
 
 export const updateBotUser = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: { telegram_id: number; daily_limit?: number | null; blocked?: boolean }) => input)
+  .validator((input: { telegram_id: number; daily_limit?: number | null; blocked?: boolean }) => input)
   .handler(async ({ data, context }) => {
     await assertAdmin(context);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -140,7 +140,7 @@ export const getBotSettings = createServerFn({ method: "GET" })
 
 export const saveBotSettings = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator(
+  .validator(
     (input: {
       default_daily_limit: number;
       parallel_jobs: number;
