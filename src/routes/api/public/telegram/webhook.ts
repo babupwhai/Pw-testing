@@ -1,11 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createHash, timingSafeEqual } from "crypto";
 import { handleUpdate, markUpdateSeen, type TgUpdate } from "@/lib/bot.server";
+import { getBotToken, webhookSecretFor } from "@/lib/telegram.server";
 import { runQueue } from "@/lib/uploader.server";
-
-function expectedSecret(apiKey: string) {
-  return createHash("sha256").update(`telegram-webhook:${apiKey}`).digest("base64url");
-}
 
 function safeEqual(a: string, b: string) {
   const left = Buffer.from(a);
@@ -13,15 +10,28 @@ function safeEqual(a: string, b: string) {
   return left.length === right.length && timingSafeEqual(left, right);
 }
 
+async function allowedSecrets(): Promise<string[]> {
+  const secrets: string[] = [];
+  const token = await getBotToken();
+  if (token) secrets.push(webhookSecretFor(token));
+  const connectionKey = process.env["TELEGRAM_API_KEY"];
+  if (connectionKey) {
+    secrets.push(
+      createHash("sha256").update(`telegram-webhook:${connectionKey}`).digest("base64url"),
+    );
+  }
+  return secrets;
+}
+
 export const Route = createFileRoute("/api/public/telegram/webhook")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const apiKey = process.env["TELEGRAM_API_KEY"];
-        if (!apiKey) return new Response("Not configured", { status: 500 });
+        const secrets = await allowedSecrets();
+        if (!secrets.length) return new Response("Not configured", { status: 500 });
 
         const provided = request.headers.get("x-telegram-bot-api-secret-token") ?? "";
-        if (!safeEqual(provided, expectedSecret(apiKey))) {
+        if (!secrets.some((s) => safeEqual(provided, s))) {
           return new Response("Unauthorized", { status: 401 });
         }
 

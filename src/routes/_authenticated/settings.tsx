@@ -1,6 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { getBotSettings as getBotSettingsFn, saveBotSettings as saveBotSettingsFn } from "@/lib/dashboard.functions";
+import {
+  connectBot as connectBotFn,
+  disconnectBot as disconnectBotFn,
+  getBotConnection as getBotConnectionFn,
+  getBotSettings as getBotSettingsFn,
+  saveBotSettings as saveBotSettingsFn,
+  sendTestMessage as sendTestMessageFn,
+} from "@/lib/dashboard.functions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -27,6 +34,63 @@ function SettingsPage() {
   const [settings, setSettings] = useState<NonNullable<Awaited<ReturnType<typeof getBotSettingsFn>>> | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  type Connection = Awaited<ReturnType<typeof getBotConnectionFn>>;
+  const [conn, setConn] = useState<Connection | null>(null);
+  const [token, setToken] = useState("");
+  const [hookUrl, setHookUrl] = useState("");
+  const [testChat, setTestChat] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const loadConn = async () => {
+    const data = await getBotConnectionFn();
+    setConn(data);
+    setHookUrl(data.webhook_url);
+  };
+
+  useEffect(() => {
+    loadConn().catch(() => undefined);
+  }, []);
+
+  const connect = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      const res = await connectBotFn({ data: { token, webhook_url: hookUrl || undefined } });
+      toast.success(`Connected: @${res.username}`);
+      setToken("");
+      await loadConn();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Connect fail hua");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const disconnect = async () => {
+    setBusy(true);
+    try {
+      await disconnectBotFn();
+      toast.success("Bot disconnect ho gaya");
+      await loadConn();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Disconnect fail");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const test = async () => {
+    setBusy(true);
+    try {
+      await sendTestMessageFn({ data: { chat_id: Number(testChat) } });
+      toast.success("Test message bhej diya");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Test fail");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   useEffect(() => {
     getBotSettingsFn()
@@ -67,6 +131,86 @@ function SettingsPage() {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Settings</h1>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Telegram bot connection</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm">
+            {conn?.connected ? (
+              <div className="space-y-1">
+                <p className="font-medium text-primary">
+                  Connected{conn.username ? ` — @${conn.username}` : ""}
+                </p>
+                <p className="text-muted-foreground">Token: {conn.token_hint}</p>
+                <p className="text-muted-foreground break-all">
+                  Webhook: {conn.webhook?.url || conn.webhook_url}
+                </p>
+                {conn.webhook?.pending_update_count ? (
+                  <p className="text-muted-foreground">
+                    Pending updates: {conn.webhook.pending_update_count}
+                  </p>
+                ) : null}
+                {conn.webhook?.last_error_message ? (
+                  <p className="text-destructive">Telegram error: {conn.webhook.last_error_message}</p>
+                ) : null}
+                {conn.error ? <p className="text-destructive">{conn.error}</p> : null}
+              </div>
+            ) : (
+              <p className="text-muted-foreground">
+                Bot connected nahi hai. BotFather se token lo aur niche paste karo.
+              </p>
+            )}
+          </div>
+
+          <form onSubmit={connect} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="bot_token">Bot token (BotFather se)</Label>
+              <Input
+                id="bot_token"
+                value={token}
+                placeholder="123456789:AA..."
+                autoComplete="off"
+                onChange={(e) => setToken(e.target.value)}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="hook_url">Webhook URL</Label>
+              <Input id="hook_url" value={hookUrl} onChange={(e) => setHookUrl(e.target.value)} />
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <Button type="submit" disabled={busy}>
+                {busy ? "Connecting…" : "Connect bot"}
+              </Button>
+              <Button type="button" variant="outline" onClick={loadConn} disabled={busy}>
+                Refresh status
+              </Button>
+              {conn?.connected ? (
+                <Button type="button" variant="outline" onClick={disconnect} disabled={busy}>
+                  Disconnect
+                </Button>
+              ) : null}
+            </div>
+          </form>
+
+          <div className="space-y-2">
+            <Label htmlFor="test_chat">Test message (apna Telegram chat id)</Label>
+            <div className="flex gap-3">
+              <Input
+                id="test_chat"
+                value={testChat}
+                placeholder="123456789"
+                onChange={(e) => setTestChat(e.target.value)}
+              />
+              <Button type="button" variant="outline" onClick={test} disabled={busy || !testChat}>
+                Send
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

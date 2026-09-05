@@ -2,7 +2,7 @@ import { createFileRoute, Link, Outlet, useNavigate } from "@tanstack/react-rout
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { isAdmin } from "@/lib/dashboard.functions";
+import { claimAdmin, isAdmin } from "@/lib/dashboard.functions";
 
 export const Route = createFileRoute("/_authenticated")({
   component: AuthenticatedLayout,
@@ -29,6 +29,7 @@ function AuthenticatedLayout() {
         return;
       }
       try {
+        await claimAdmin().catch(() => undefined);
         const { admin: isAdminUser } = await isAdmin();
         if (!isAdminUser) {
           await supabase.auth.signOut();

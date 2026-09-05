@@ -154,3 +154,129 @@ export const saveBotSettings = createServerFn({ method: "POST" })
     await supabaseAdmin.from("settings").update(data as never).eq("id", 1);
     return { ok: true };
   });
+
+/** ---- Telegram bot connection (token pasted in the admin panel) ---- */
+
+const DEFAULT_WEBHOOK_BASE = "https://link-to-streamer.lovable.app";
+
+export const getBotConnection = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertAdmin(context);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { tgCall } = await import("@/lib/telegram.server");
+    const { data } = await supabaseAdmin
+      .from("settings")
+      .select("bot_token, bot_username, webhook_url, webhook_set_at")
+      .eq("id", 1)
+      .maybeSingle();
+    const row = (data ?? {}) as {
+      bot_token?: string | null;
+      bot_username?: string | null;
+      webhook_url?: string | null;
+      webhook_set_at?: string | null;
+    };
+
+    let me: string | null = null;
+    let webhook: { url?: string; pending_update_count?: number; last_error_message?: string } | null =
+      null;
+    let error: string | null = null;
+
+    if (row.bot_token) {
+      const info = await tgCall<{ username: string }>("getMe");
+      if (info.ok) me = info.result.username;
+      else error = info.error;
+      const hook = await tgCall<{
+        url?: string;
+        pending_update_count?: number;
+        last_error_message?: string;
+      }>("getWebhookInfo");
+      if (hook.ok) webhook = hook.result;
+    }
+
+    return {
+      connected: Boolean(row.bot_token),
+      token_hint: row.bot_token ? `${row.bot_token.slice(0, 8)}…${row.bot_token.slice(-4)}` : null,
+      username: me ?? row.bot_username ?? null,
+      webhook_url: row.webhook_url ?? `${DEFAULT_WEBHOOK_BASE}/api/public/telegram/webhook`,
+      webhook_set_at: row.webhook_set_at ?? null,
+      webhook,
+      error,
+    };
+  });
+
+export const connectBot = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((input: { token: string; webhook_url?: string }) => input)
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { clearTelegramCache, tgCall, webhookSecretFor } = await import("@/lib/telegram.server");
+
+    const token = data.token.trim();
+    if (!/^\d+:[\w-]{20,}$/.test(token)) {
+      throw new Error("Ye bot token sahi format me nahi hai (123456:ABC-DEF...).");
+    }
+
+    const check = await fetch(`https://api.telegram.org/bot${token}/getMe`);
+    const checkJson = (await check.json()) as {
+      ok?: boolean;
+      result?: { username?: string };
+      description?: string;
+    };
+    if (!checkJson.ok || !checkJson.result?.username) {
+      throw new Error(`Telegram ne token reject kiya: ${checkJson.description ?? "invalid token"}`);
+    }
+
+    const webhookUrl =
+      data.webhook_url?.trim() || `${DEFAULT_WEBHOOK_BASE}/api/public/telegram/webhook`;
+
+    await supabaseAdmin
+      .from("settings")
+      .update({
+        bot_token: token,
+        bot_username: checkJson.result.username,
+        webhook_url: webhookUrl,
+        webhook_set_at: new Date().toISOString(),
+      } as never)
+      .eq("id", 1);
+    clearTelegramCache();
+
+    const hook = await tgCall("setWebhook", {
+      url: webhookUrl,
+      secret_token: webhookSecretFor(token),
+      allowed_updates: ["message", "edited_message"],
+      drop_pending_updates: true,
+      max_connections: 40,
+    });
+    if (!hook.ok) throw new Error(`Webhook set nahi hua: ${hook.error}`);
+
+    return { ok: true, username: checkJson.result.username, webhook_url: webhookUrl };
+  });
+
+export const disconnectBot = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertAdmin(context);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { clearTelegramCache, tgCall } = await import("@/lib/telegram.server");
+    await tgCall("deleteWebhook", { drop_pending_updates: false });
+    await supabaseAdmin
+      .from("settings")
+      .update({ bot_token: null, bot_username: null, webhook_set_at: null } as never)
+      .eq("id", 1);
+    clearTelegramCache();
+    return { ok: true };
+  });
+
+/** Sends a test message to the admin's own Telegram chat id. */
+export const sendTestMessage = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((input: { chat_id: number }) => input)
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context);
+    const { sendMessage } = await import("@/lib/telegram.server");
+    const res = await sendMessage(data.chat_id, "✅ Test message — bot connected hai.");
+    if (!res.ok) throw new Error(res.error);
+    return { ok: true };
+  });

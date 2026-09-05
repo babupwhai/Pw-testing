@@ -1,47 +1,93 @@
+import { createHash } from "crypto";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
+
 const GATEWAY = "https://connector-gateway.lovable.dev/telegram";
 
-function keys() {
-  const lovable = process.env["LOVABLE_API_KEY"];
-  const connection = process.env["TELEGRAM_API_KEY"];
-  if (!lovable) throw new Error("LOVABLE_API_KEY is not configured");
-  if (!connection) throw new Error("TELEGRAM_API_KEY is not configured");
-  return { lovable, connection };
+type Transport =
+  | { mode: "token"; base: string; fileBase: string; headers: Record<string, string> }
+  | { mode: "gateway"; base: string; fileBase: string; headers: Record<string, string> };
+
+let cached: { transport: Transport; at: number } | null = null;
+const CACHE_MS = 15_000;
+
+export async function getBotToken(): Promise<string | null> {
+  const { data } = await supabaseAdmin
+    .from("settings")
+    .select("bot_token")
+    .eq("id", 1)
+    .maybeSingle();
+  const token = (data as { bot_token?: string | null } | null)?.bot_token?.trim();
+  return token ? token : process.env["TELEGRAM_BOT_TOKEN"]?.trim() || null;
 }
 
-function authHeaders() {
-  const { lovable, connection } = keys();
-  return {
-    Authorization: `Bearer ${lovable}`,
-    "X-Connection-Api-Key": connection,
-  };
+/** Secret token Telegram sends back on every webhook call. */
+export function webhookSecretFor(token: string) {
+  return createHash("sha256").update(`telegram-webhook:${token}`).digest("base64url");
+}
+
+async function transport(): Promise<Transport> {
+  if (cached && Date.now() - cached.at < CACHE_MS) return cached.transport;
+
+  const token = await getBotToken();
+  let value: Transport;
+  if (token) {
+    value = {
+      mode: "token",
+      base: `https://api.telegram.org/bot${token}`,
+      fileBase: `https://api.telegram.org/file/bot${token}`,
+      headers: {},
+    };
+  } else {
+    const lovable = process.env["LOVABLE_API_KEY"];
+    const connection = process.env["TELEGRAM_API_KEY"];
+    if (!lovable || !connection) {
+      throw new Error("Bot token not set. Admin panel → Settings me bot token daalo.");
+    }
+    value = {
+      mode: "gateway",
+      base: GATEWAY,
+      fileBase: `${GATEWAY}/file`,
+      headers: {
+        Authorization: `Bearer ${lovable}`,
+        "X-Connection-Api-Key": connection,
+      },
+    };
+  }
+  cached = { transport: value, at: Date.now() };
+  return value;
+}
+
+export function clearTelegramCache() {
+  cached = null;
 }
 
 export type TgResult<T = unknown> = { ok: true; result: T } | { ok: false; error: string };
+
+function parseResponse<T>(status: number, text: string): TgResult<T> {
+  let parsed: { ok?: boolean; result?: T; description?: string } = {};
+  try {
+    parsed = JSON.parse(text) as typeof parsed;
+  } catch {
+    return { ok: false, error: `Telegram [${status}]: ${text.slice(0, 300)}` };
+  }
+  if (parsed.ok !== true) {
+    return { ok: false, error: `${parsed.description ?? text.slice(0, 300)} (${status})` };
+  }
+  return { ok: true, result: parsed.result as T };
+}
 
 export async function tgCall<T = unknown>(
   method: string,
   body: Record<string, unknown> = {},
 ): Promise<TgResult<T>> {
   try {
-    const res = await fetch(`${GATEWAY}/${method}`, {
+    const t = await transport();
+    const res = await fetch(`${t.base}/${method}`, {
       method: "POST",
-      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      headers: { ...t.headers, "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    const text = await res.text();
-    let parsed: { ok?: boolean; result?: T; description?: string } = {};
-    try {
-      parsed = JSON.parse(text) as typeof parsed;
-    } catch {
-      return { ok: false, error: `Telegram ${method} [${res.status}]: ${text.slice(0, 300)}` };
-    }
-    if (!res.ok || parsed.ok !== true) {
-      return {
-        ok: false,
-        error: `${parsed.description ?? text.slice(0, 300)} (${res.status})`,
-      };
-    }
-    return { ok: true, result: parsed.result as T };
+    return parseResponse<T>(res.status, await res.text());
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
@@ -53,22 +99,13 @@ export async function tgUpload<T = unknown>(
   form: FormData,
 ): Promise<TgResult<T>> {
   try {
-    const res = await fetch(`${GATEWAY}/${method}`, {
+    const t = await transport();
+    const res = await fetch(`${t.base}/${method}`, {
       method: "POST",
-      headers: authHeaders(),
+      headers: t.headers,
       body: form,
     });
-    const text = await res.text();
-    let parsed: { ok?: boolean; result?: T; description?: string } = {};
-    try {
-      parsed = JSON.parse(text) as typeof parsed;
-    } catch {
-      return { ok: false, error: `Telegram ${method} [${res.status}]: ${text.slice(0, 300)}` };
-    }
-    if (!res.ok || parsed.ok !== true) {
-      return { ok: false, error: `${parsed.description ?? text.slice(0, 300)} (${res.status})` };
-    }
-    return { ok: true, result: parsed.result as T };
+    return parseResponse<T>(res.status, await res.text());
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
@@ -100,13 +137,15 @@ export async function deleteMessage(chatId: number, messageId: number) {
 export async function getFileLink(fileId: string): Promise<string | null> {
   const info = await tgCall<{ file_path: string }>("getFile", { file_id: fileId });
   if (!info.ok || !info.result?.file_path) return null;
-  return `${GATEWAY}/file/${info.result.file_path}`;
+  const t = await transport();
+  return `${t.fileBase}/${info.result.file_path}`;
 }
 
 export async function downloadTelegramFile(fileId: string): Promise<string | null> {
   const link = await getFileLink(fileId);
   if (!link) return null;
-  const res = await fetch(link, { headers: authHeaders() });
+  const t = await transport();
+  const res = await fetch(link, { headers: t.headers });
   if (!res.ok) return null;
   return res.text();
 }
