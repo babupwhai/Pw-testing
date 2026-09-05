@@ -28,16 +28,16 @@ function JobsPage() {
 
   useEffect(() => {
     setLoading(true);
-    listJobs({ status })
+    listJobs({ data: { status } })
       .then(setJobs)
       .finally(() => setLoading(false));
   }, [status]);
 
   const onRetry = async (id: string) => {
     try {
-      await retryJob({ id });
+      await retryJob({ data: { id } });
       toast.success("Job retry ho gaya");
-      const refreshed = await listJobs({ status });
+      const refreshed = await listJobs({ data: { status } });
       setJobs(refreshed);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Retry fail");
