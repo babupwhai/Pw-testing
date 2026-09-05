@@ -115,6 +115,20 @@ async function queueLinks(
   const accepted = links.slice(0, left);
   const skipped = links.length - accepted.length;
 
+  // Single stream link → pehle quality + size dikhao, user chune.
+  if (accepted.length === 1 && detectKind(accepted[0]!.url) === "hls") {
+    const asked = await askQuality(chatId, user, accepted[0]!);
+    if (asked) {
+      await addUsage(user.telegram_id, 1);
+      await supabaseAdmin
+        .from("bot_users")
+        .update({ total_jobs: user.total_jobs + 1 })
+        .eq("telegram_id", user.telegram_id);
+      return;
+    }
+  }
+
+
   let batchId: string | null = null;
   if (accepted.length > 1) {
     const { data: batch } = await supabaseAdmin
