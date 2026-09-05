@@ -109,15 +109,21 @@ export type Database = {
           kind: string
           method: string | null
           ms_taken: number | null
+          part_index: number
+          parts_sent: number
           position: number
           progress: number
+          segment_cursor: number
+          selected_quality: string | null
           started_at: string | null
           status: string
           status_message_id: number | null
+          stream_url: string | null
           telegram_id: number
           title: string | null
           updated_at: string
           url: string
+          variants: Json | null
         }
         Insert: {
           attempts?: number
@@ -132,15 +138,21 @@ export type Database = {
           kind?: string
           method?: string | null
           ms_taken?: number | null
+          part_index?: number
+          parts_sent?: number
           position?: number
           progress?: number
+          segment_cursor?: number
+          selected_quality?: string | null
           started_at?: string | null
           status?: string
           status_message_id?: number | null
+          stream_url?: string | null
           telegram_id: number
           title?: string | null
           updated_at?: string
           url: string
+          variants?: Json | null
         }
         Update: {
           attempts?: number
@@ -155,15 +167,21 @@ export type Database = {
           kind?: string
           method?: string | null
           ms_taken?: number | null
+          part_index?: number
+          parts_sent?: number
           position?: number
           progress?: number
+          segment_cursor?: number
+          selected_quality?: string | null
           started_at?: string | null
           status?: string
           status_message_id?: number | null
+          stream_url?: string | null
           telegram_id?: number
           title?: string | null
           updated_at?: string
           url?: string
+          variants?: Json | null
         }
         Relationships: [
           {
@@ -183,6 +201,7 @@ export type Database = {
           default_daily_limit: number
           id: number
           max_file_mb: number
+          max_part_mb: number
           parallel_jobs: number
           updated_at: string
           webhook_set_at: string | null
@@ -196,6 +215,7 @@ export type Database = {
           default_daily_limit?: number
           id?: number
           max_file_mb?: number
+          max_part_mb?: number
           parallel_jobs?: number
           updated_at?: string
           webhook_set_at?: string | null
@@ -209,6 +229,7 @@ export type Database = {
           default_daily_limit?: number
           id?: number
           max_file_mb?: number
+          max_part_mb?: number
           parallel_jobs?: number
           updated_at?: string
           webhook_set_at?: string | null
