@@ -140,7 +140,7 @@ export const getBotSettings = createServerFn({ method: "GET" })
 
 export const saveBotSettings = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator(
+  .validator(
     (input: {
       default_daily_limit: number;
       parallel_jobs: number;
