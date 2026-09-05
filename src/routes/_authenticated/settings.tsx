@@ -56,7 +56,9 @@ function SettingsPage() {
     event.preventDefault();
     setBusy(true);
     try {
-      const res = await connectBotFn({ data: { token, webhook_url: hookUrl || undefined } });
+      const res = await connectBotFn({
+        data: hookUrl ? { token, webhook_url: hookUrl } : { token },
+      });
       toast.success(`Connected: @${res.username}`);
       setToken("");
       await loadConn();
@@ -109,6 +111,7 @@ function SettingsPage() {
           parallel_jobs: settings.parallel_jobs,
           allow_all_users: settings.allow_all_users,
           welcome_text: settings.welcome_text,
+          max_part_mb: settings.max_part_mb ?? 45,
         },
       });
       toast.success("Settings save ho gayi");
@@ -243,6 +246,23 @@ function SettingsPage() {
                   setSettings((s) => (s ? { ...s, parallel_jobs: Number(e.target.value) } : s))
                 }
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="max_part_mb">Video part size (MB)</Label>
+              <Input
+                id="max_part_mb"
+                type="number"
+                min={5}
+                max={48}
+                value={settings.max_part_mb ?? 45}
+                onChange={(e) =>
+                  setSettings((s) => (s ? { ...s, max_part_mb: Number(e.target.value) } : s))
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                Bade lecture itne-itne MB ke playable parts me bheje jayenge (Telegram max 48).
+              </p>
             </div>
 
             <div className="flex items-center gap-3">
