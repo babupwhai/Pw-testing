@@ -22,9 +22,7 @@ export const Route = createFileRoute("/_authenticated/users")({
 });
 
 function UsersPage() {
-  const listUsers = useServerFn(listUsersFn);
-  const updateBotUser = useServerFn(updateBotUserFn);
-  const [users, setUsers] = useState<Awaited<ReturnType<typeof listUsersFn>>>([]);
+  const [users, setUsers] = useState<Awaited<ReturnType<typeof listUsers>>>([]);
   const [loading, setLoading] = useState(true);
 
   const load = async () => {
@@ -41,7 +39,7 @@ function UsersPage() {
   const setLimit = async (telegram_id: number, value: string) => {
     const num = value === "" ? null : Number(value);
     try {
-      await updateBotUser({ telegram_id, daily_limit: num });
+      await updateBotUser({ data: { telegram_id, daily_limit: num } });
       toast.success("Limit update ho gaya");
       await load();
     } catch (err) {
@@ -51,7 +49,7 @@ function UsersPage() {
 
   const toggleBlock = async (telegram_id: number, blocked: boolean) => {
     try {
-      await updateBotUser({ telegram_id, blocked });
+      await updateBotUser({ data: { telegram_id, blocked } });
       toast.success(blocked ? "User block ho gaya" : "User unblock ho gaya");
       await load();
     } catch (err) {
