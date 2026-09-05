@@ -146,6 +146,7 @@ export const saveBotSettings = createServerFn({ method: "POST" })
       parallel_jobs: number;
       allow_all_users: boolean;
       welcome_text: string | null;
+      max_part_mb?: number;
     }) => input,
   )
   .handler(async ({ data, context }) => {
