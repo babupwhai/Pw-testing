@@ -14,16 +14,266 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      batches: {
+        Row: {
+          chat_id: number
+          created_at: string
+          done: number
+          failed: number
+          id: string
+          source_name: string | null
+          telegram_id: number
+          total: number
+          updated_at: string
+        }
+        Insert: {
+          chat_id: number
+          created_at?: string
+          done?: number
+          failed?: number
+          id?: string
+          source_name?: string | null
+          telegram_id: number
+          total?: number
+          updated_at?: string
+        }
+        Update: {
+          chat_id?: number
+          created_at?: string
+          done?: number
+          failed?: number
+          id?: string
+          source_name?: string | null
+          telegram_id?: number
+          total?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      bot_users: {
+        Row: {
+          blocked: boolean
+          created_at: string
+          daily_limit: number | null
+          first_name: string | null
+          first_seen_at: string
+          id: string
+          last_seen_at: string
+          telegram_id: number
+          total_jobs: number
+          updated_at: string
+          username: string | null
+        }
+        Insert: {
+          blocked?: boolean
+          created_at?: string
+          daily_limit?: number | null
+          first_name?: string | null
+          first_seen_at?: string
+          id?: string
+          last_seen_at?: string
+          telegram_id: number
+          total_jobs?: number
+          updated_at?: string
+          username?: string | null
+        }
+        Update: {
+          blocked?: boolean
+          created_at?: string
+          daily_limit?: number | null
+          first_name?: string | null
+          first_seen_at?: string
+          id?: string
+          last_seen_at?: string
+          telegram_id?: number
+          total_jobs?: number
+          updated_at?: string
+          username?: string | null
+        }
+        Relationships: []
+      }
+      jobs: {
+        Row: {
+          attempts: number
+          batch_id: string | null
+          chat_id: number
+          created_at: string
+          error: string | null
+          file_name: string | null
+          file_size: number | null
+          finished_at: string | null
+          id: string
+          kind: string
+          method: string | null
+          ms_taken: number | null
+          position: number
+          progress: number
+          started_at: string | null
+          status: string
+          status_message_id: number | null
+          telegram_id: number
+          title: string | null
+          updated_at: string
+          url: string
+        }
+        Insert: {
+          attempts?: number
+          batch_id?: string | null
+          chat_id: number
+          created_at?: string
+          error?: string | null
+          file_name?: string | null
+          file_size?: number | null
+          finished_at?: string | null
+          id?: string
+          kind?: string
+          method?: string | null
+          ms_taken?: number | null
+          position?: number
+          progress?: number
+          started_at?: string | null
+          status?: string
+          status_message_id?: number | null
+          telegram_id: number
+          title?: string | null
+          updated_at?: string
+          url: string
+        }
+        Update: {
+          attempts?: number
+          batch_id?: string | null
+          chat_id?: number
+          created_at?: string
+          error?: string | null
+          file_name?: string | null
+          file_size?: number | null
+          finished_at?: string | null
+          id?: string
+          kind?: string
+          method?: string | null
+          ms_taken?: number | null
+          position?: number
+          progress?: number
+          started_at?: string | null
+          status?: string
+          status_message_id?: number | null
+          telegram_id?: number
+          title?: string | null
+          updated_at?: string
+          url?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "jobs_batch_id_fkey"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "batches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      settings: {
+        Row: {
+          allow_all_users: boolean
+          default_daily_limit: number
+          id: number
+          max_file_mb: number
+          parallel_jobs: number
+          updated_at: string
+          welcome_text: string | null
+        }
+        Insert: {
+          allow_all_users?: boolean
+          default_daily_limit?: number
+          id?: number
+          max_file_mb?: number
+          parallel_jobs?: number
+          updated_at?: string
+          welcome_text?: string | null
+        }
+        Update: {
+          allow_all_users?: boolean
+          default_daily_limit?: number
+          id?: number
+          max_file_mb?: number
+          parallel_jobs?: number
+          updated_at?: string
+          welcome_text?: string | null
+        }
+        Relationships: []
+      }
+      tg_updates: {
+        Row: {
+          created_at: string
+          update_id: number
+        }
+        Insert: {
+          created_at?: string
+          update_id: number
+        }
+        Update: {
+          created_at?: string
+          update_id?: number
+        }
+        Relationships: []
+      }
+      usage_daily: {
+        Row: {
+          count: number
+          day: string
+          id: string
+          telegram_id: number
+        }
+        Insert: {
+          count?: number
+          day?: string
+          id?: string
+          telegram_id: number
+        }
+        Update: {
+          count?: number
+          day?: string
+          id?: string
+          telegram_id?: number
+        }
+        Relationships: []
+      }
+      user_roles: {
+        Row: {
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +400,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin"],
+    },
   },
 } as const
