@@ -56,7 +56,9 @@ function SettingsPage() {
     event.preventDefault();
     setBusy(true);
     try {
-      const res = await connectBotFn({ data: { token, webhook_url: hookUrl || undefined } });
+      const res = await connectBotFn({
+        data: hookUrl ? { token, webhook_url: hookUrl } : { token },
+      });
       toast.success(`Connected: @${res.username}`);
       setToken("");
       await loadConn();
