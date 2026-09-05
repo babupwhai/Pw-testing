@@ -246,7 +246,7 @@ export const connectBot = createServerFn({ method: "POST" })
     const hook = await tgCall("setWebhook", {
       url: webhookUrl,
       secret_token: webhookSecretFor(token),
-      allowed_updates: ["message", "edited_message"],
+      allowed_updates: ["message", "edited_message", "callback_query"],
       drop_pending_updates: true,
       max_connections: 40,
     });

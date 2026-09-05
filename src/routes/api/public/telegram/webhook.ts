@@ -49,7 +49,9 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
 
         try {
           await handleUpdate(update);
-          await runQueue(35_000);
+          // A callback immediately starts the selected quality. If the runtime
+          // budget ends, the saved segment cursor lets the next webhook/tick resume.
+          await runQueue(update.callback_query ? 50_000 : 35_000);
         } catch (err) {
           console.error("telegram webhook error", err);
         }

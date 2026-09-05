@@ -261,7 +261,8 @@ function SettingsPage() {
                 }
               />
               <p className="text-xs text-muted-foreground">
-                Bade lecture itne-itne MB ke playable parts me bheje jayenge (Telegram max 48).
+                Abhi Lovable testing me bade lecture itne-itne MB ke playable parts me aayenge.
+                Heroku/local Bot API mode jodne par 2 GB tak single-file delivery milegi.
               </p>
             </div>
 

@@ -347,15 +347,16 @@ export async function runQueue(budgetMs = 40_000): Promise<{ processed: number; 
   const settings = await getSettings();
   const deadline = Date.now() + budgetMs;
   let processed = 0;
+  const maxJobsPerRun = Math.max(1, Math.min(10, settings.parallel_jobs * 2));
 
-  while (Date.now() < deadline - 5_000) {
+  while (Date.now() < deadline - 5_000 && processed < maxJobsPerRun) {
     const { data: queued } = await supabaseAdmin
       .from("jobs")
       .select(JOB_FIELDS)
       .eq("status", "queued")
       .order("created_at", { ascending: true })
       .order("position", { ascending: true })
-      .limit(Math.max(1, settings.parallel_jobs));
+      .limit(Math.min(Math.max(1, settings.parallel_jobs), maxJobsPerRun - processed));
 
     if (!queued?.length) break;
 
