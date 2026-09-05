@@ -118,7 +118,7 @@ export const listUsers = createServerFn({ method: "GET" })
 
 export const updateBotUser = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: { telegram_id: number; daily_limit?: number | null; blocked?: boolean }) => input)
+  .validator((input: { telegram_id: number; daily_limit?: number | null; blocked?: boolean }) => input)
   .handler(async ({ data, context }) => {
     await assertAdmin(context);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
