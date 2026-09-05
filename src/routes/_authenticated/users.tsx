@@ -1,7 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { useServerFn } from "@tanstack/react-start";
-import { listUsers as listUsersFn, updateBotUser as updateBotUserFn } from "@/lib/dashboard.functions";
+import { listUsers, updateBotUser } from "@/lib/dashboard.functions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
