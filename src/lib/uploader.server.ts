@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import type { Database } from "@/integrations/supabase/types";
 import { detectKind, fileNameFromUrl, humanSize } from "@/lib/link-utils";
 import { hlsToMp4 } from "@/lib/hls.server";
 import { editMessage, sendMessage, tgCall, tgUpload } from "@/lib/telegram.server";
@@ -100,7 +101,7 @@ async function sendByUpload(
   return { result, size: buffer.byteLength };
 }
 
-type JobUpdate = Parameters<ReturnType<typeof supabaseAdmin.from<"jobs">>["update"]>[0];
+type JobUpdate = Database["public"]["Tables"]["jobs"]["Update"];
 
 async function updateJob(id: string, patch: JobUpdate) {
   await supabaseAdmin.from("jobs").update(patch).eq("id", id);
