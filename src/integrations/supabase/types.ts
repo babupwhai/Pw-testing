@@ -58,6 +58,7 @@ export type Database = {
           first_name: string | null
           first_seen_at: string
           id: string
+          is_bot_admin: boolean
           last_seen_at: string
           telegram_id: number
           total_jobs: number
@@ -71,6 +72,7 @@ export type Database = {
           first_name?: string | null
           first_seen_at?: string
           id?: string
+          is_bot_admin?: boolean
           last_seen_at?: string
           telegram_id: number
           total_jobs?: number
@@ -84,6 +86,7 @@ export type Database = {
           first_name?: string | null
           first_seen_at?: string
           id?: string
+          is_bot_admin?: boolean
           last_seen_at?: string
           telegram_id?: number
           total_jobs?: number

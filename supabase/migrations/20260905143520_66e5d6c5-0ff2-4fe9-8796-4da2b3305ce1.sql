@@ -1,0 +1,1 @@
+ALTER TABLE public.bot_users ADD COLUMN is_bot_admin boolean NOT NULL DEFAULT false;
