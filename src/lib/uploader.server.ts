@@ -100,7 +100,9 @@ async function sendByUpload(
   return { result, size: buffer.byteLength };
 }
 
-async function updateJob(id: string, patch: Record<string, unknown>) {
+type JobUpdate = Parameters<ReturnType<typeof supabaseAdmin.from<"jobs">>["update"]>[0];
+
+async function updateJob(id: string, patch: JobUpdate) {
   await supabaseAdmin.from("jobs").update(patch).eq("id", id);
 }
 
