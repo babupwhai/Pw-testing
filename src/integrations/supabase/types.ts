@@ -178,29 +178,41 @@ export type Database = {
       settings: {
         Row: {
           allow_all_users: boolean
+          bot_token: string | null
+          bot_username: string | null
           default_daily_limit: number
           id: number
           max_file_mb: number
           parallel_jobs: number
           updated_at: string
+          webhook_set_at: string | null
+          webhook_url: string | null
           welcome_text: string | null
         }
         Insert: {
           allow_all_users?: boolean
+          bot_token?: string | null
+          bot_username?: string | null
           default_daily_limit?: number
           id?: number
           max_file_mb?: number
           parallel_jobs?: number
           updated_at?: string
+          webhook_set_at?: string | null
+          webhook_url?: string | null
           welcome_text?: string | null
         }
         Update: {
           allow_all_users?: boolean
+          bot_token?: string | null
+          bot_username?: string | null
           default_daily_limit?: number
           id?: number
           max_file_mb?: number
           parallel_jobs?: number
           updated_at?: string
+          webhook_set_at?: string | null
+          webhook_url?: string | null
           welcome_text?: string | null
         }
         Relationships: []
