@@ -32,7 +32,7 @@ function DashboardPage() {
 
   const onRetry = async (id: string) => {
     try {
-      await retryJob({ id });
+      await retryJob({ data: { id } });
       toast.success("Job retry ho gaya");
       const refreshed = await getOverview();
       setData(refreshed);
