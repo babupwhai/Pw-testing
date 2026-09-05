@@ -79,7 +79,7 @@ function UsersPage() {
                 >
                   <div className="min-w-0">
                     <p className="font-medium">
-                      {u.first_name || "User"} {u.last_name || ""}
+                      {u.first_name || "User"}
                       {u.username && <span className="text-muted-foreground"> (@{u.username})</span>}
                     </p>
                     <p className="text-xs text-muted-foreground">
