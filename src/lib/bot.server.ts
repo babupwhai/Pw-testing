@@ -12,7 +12,18 @@ export type TgMessage = {
   caption?: string;
   document?: { file_id: string; file_name?: string; mime_type?: string };
 };
-export type TgUpdate = { update_id: number; message?: TgMessage; edited_message?: TgMessage };
+export type TgCallbackQuery = {
+  id: string;
+  from: TgUser;
+  data?: string;
+  message?: { message_id: number; chat: { id: number } };
+};
+export type TgUpdate = {
+  update_id: number;
+  message?: TgMessage;
+  edited_message?: TgMessage;
+  callback_query?: TgCallbackQuery;
+};
 
 function todayIST() {
   const now = new Date(Date.now() + 5.5 * 3600 * 1000);
