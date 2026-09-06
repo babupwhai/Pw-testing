@@ -200,8 +200,23 @@ async function askQuality(
 }
 
 export async function handleCallback(cb: TgCallbackQuery): Promise<void> {
-  const answer = (text: string) => tgCall("answerCallbackQuery", { callback_query_id: cb.id, text });
-  const parts = (cb.data ?? "").split(":");
+  const answer = (text = "") =>
+    tgCall("answerCallbackQuery", { callback_query_id: cb.id, text });
+  const data = cb.data ?? "";
+
+  if (data.startsWith("p:")) {
+    const { handlePwCallback } = await import("@/lib/pwflow.server");
+    await handlePwCallback(
+      cb.message?.chat.id ?? cb.from.id,
+      cb.message?.message_id ?? null,
+      cb.from.id,
+      data,
+      answer,
+    );
+    return;
+  }
+
+  const parts = data.split(":");
   if (parts[0] !== "q" || !parts[1]) {
     await answer("");
     return;
@@ -350,6 +365,23 @@ async function queueLinks(
   }
 }
 
+/** Queues links for a Telegram user (used by the batch browser). */
+export async function queueForUser(
+  chatId: number,
+  telegramId: number,
+  links: { url: string; title?: string }[],
+  batchName?: string,
+) {
+  const settings = await getSettings();
+  const { data: user } = await supabaseAdmin
+    .from("bot_users")
+    .select("*")
+    .eq("telegram_id", telegramId)
+    .maybeSingle();
+  if (!user) return;
+  await queueLinks(chatId, user as BotUser, settings, links, batchName);
+}
+
 async function handleCommand(
   text: string,
   message: TgMessage,
@@ -370,8 +402,9 @@ async function handleCommand(
         : [
             "👋 <b>Uploader bot ready</b>",
             "",
-            "• Koi bhi link bhejo — mp4, pdf, zip, m3u8 — main file yahi bhej dunga.",
-            "• Ek <code>.txt</code> file bhejo jisme links hain — sab line by line aa jayenge.",
+            "1️⃣ <b>Batch ka naam</b> ya <b>batch ID</b> bhejo — subjects, chapters aur lectures yahi khulenge, lecture par tap karo aur video aa jayega.",
+            "2️⃣ Koi bhi <b>link</b> bhejo — mp4, pdf, zip, m3u8 — main file yahi bhej dunga.",
+            "3️⃣ Ek <code>.txt</code> file bhejo jisme links hain — sab line by line aa jayenge.",
             "",
             `Aaj: <b>${used}/${limit}</b> uploads.`,
           ].join("\n"),
@@ -510,7 +543,25 @@ export async function handleUpdate(update: TgUpdate): Promise<void> {
 
   const links = extractLinks(text).filter((l) => isHttpUrl(l.url));
   if (!links.length) {
-    await sendMessage(chatId, "🔗 Ek link bhejo (ya links wali .txt file). /help for details.");
+    const query = text.trim();
+    if (query.length >= 2) {
+      const flow = await import("@/lib/pwflow.server");
+      const callbacks = await ensureCallbackQueries();
+      if (!callbacks.ok) {
+        await sendMessage(chatId, `❌ Buttons activate nahi hue: ${escapeHtml(callbacks.error)}`);
+        return;
+      }
+      if (flow.BATCH_ID_RE.test(query)) {
+        await flow.showBatch(chatId, null, query);
+      } else {
+        await flow.showBatchSearch(chatId, query);
+      }
+      return;
+    }
+    await sendMessage(
+      chatId,
+      "🔗 Batch ka naam ya ID bhejo, ya koi link / links wali .txt file. /help dekho.",
+    );
     return;
   }
 
