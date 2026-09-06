@@ -193,6 +193,24 @@ export type Database = {
           },
         ]
       }
+      pw_nav: {
+        Row: {
+          created_at: string
+          data: Json
+          token: string
+        }
+        Insert: {
+          created_at?: string
+          data: Json
+          token: string
+        }
+        Update: {
+          created_at?: string
+          data?: Json
+          token?: string
+        }
+        Relationships: []
+      }
       settings: {
         Row: {
           allow_all_users: boolean
