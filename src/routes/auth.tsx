@@ -26,8 +26,11 @@ function AuthPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
+  // Until React has hydrated, the form would submit natively and reload the page.
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
+    setReady(true);
     supabase.auth.getSession().then(({ data }) => {
       if (data.session) navigate({ to: "/dashboard" });
     });
@@ -100,7 +103,7 @@ function AuthPage() {
               onChange={(e) => setPassword(e.target.value)}
             />
           </div>
-          <Button type="submit" className="w-full" disabled={busy}>
+          <Button type="submit" className="w-full" disabled={busy || !ready}>
             {mode === "signin" ? "Login" : "Account banao"}
           </Button>
         </form>
