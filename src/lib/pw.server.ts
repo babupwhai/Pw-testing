@@ -56,7 +56,7 @@ export async function batchDetails(batchId: string): Promise<BatchInfo> {
   };
 }
 
-export type Topic = { id: string; name: string; videos: number; notes: number; typeId?: string };
+export type Topic = { id: string; name: string; videos: number; notes: number; typeId: string | null };
 
 export async function listTopics(batchSlug: string, subjectSlug: string): Promise<Topic[]> {
   const data = await api<
@@ -67,7 +67,7 @@ export async function listTopics(batchSlug: string, subjectSlug: string): Promis
     name: t.name,
     videos: t.videos ?? 0,
     notes: t.notes ?? 0,
-    typeId: t.typeId,
+    typeId: t.typeId ?? null,
   }));
 }
 
@@ -76,8 +76,8 @@ export type Lecture = {
   name: string;
   url: string;
   urlType: string;
-  duration?: string;
-  typeId?: string;
+  duration: string | null;
+  typeId: string | null;
 };
 
 export async function listLectures(
@@ -104,8 +104,8 @@ export async function listLectures(
     name: c.videoDetails?.name || c.topic || "Lecture",
     url: c.url ?? "",
     urlType: c.urlType ?? "",
-    duration: c.videoDetails?.duration,
-    typeId: c.typeId,
+    duration: c.videoDetails?.duration ?? null,
+    typeId: c.typeId ?? null,
   }));
 }
 
@@ -170,13 +170,16 @@ export function playerLink(params: {
  */
 export async function saveNav(data: Record<string, unknown>): Promise<string> {
   const token = Math.random().toString(36).slice(2, 12);
-  await supabaseAdmin.from("pw_nav").insert({ token, data });
+  await supabaseAdmin.from("pw_nav" as never).insert({ token, data } as never);
   return token;
 }
 
 export async function loadNav<T>(token: string): Promise<T | null> {
-  const { data } = await supabaseAdmin
-    .from("pw_nav")
+  const { data } = await (supabaseAdmin.from("pw_nav" as never) as never as {
+    select: (c: string) => {
+      eq: (k: string, v: string) => { maybeSingle: () => Promise<{ data: { data: unknown } | null }> };
+    };
+  })
     .select("data")
     .eq("token", token)
     .maybeSingle();
