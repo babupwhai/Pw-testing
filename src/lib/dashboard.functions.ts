@@ -9,19 +9,39 @@ async function assertAdmin(context: { supabase: any; userId: string }) {
   if (!data) throw new Error("You are not an admin of this bot yet.");
 }
 
-/** Grants admin to the first signed-in user; later users must be added by an admin. */
+/** Owner emails that always get dashboard access. */
+const OWNER_EMAILS = ["pwmarcofounder@gmail.com"];
+
+/** Grants admin to the owner email or to the very first signed-in user. */
 export const claimAdmin = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { count } = await supabaseAdmin
+    const email = String(
+      (context.claims as { email?: string } | undefined)?.email ?? "",
+    ).toLowerCase();
+    const isOwner = OWNER_EMAILS.includes(email);
+
+    if (!isOwner) {
+      const { count } = await supabaseAdmin
+        .from("user_roles")
+        .select("id", { count: "exact", head: true })
+        .eq("role", "admin");
+      if ((count ?? 0) > 0) return { granted: false };
+    }
+
+    const { data: already } = await supabaseAdmin
       .from("user_roles")
-      .select("id", { count: "exact", head: true })
-      .eq("role", "admin");
-    if ((count ?? 0) > 0) return { granted: false };
+      .select("id")
+      .eq("user_id", context.userId)
+      .eq("role", "admin")
+      .maybeSingle();
+    if (already) return { granted: true };
+
     await supabaseAdmin.from("user_roles").insert({ user_id: context.userId, role: "admin" });
     return { granted: true };
   });
+
 
 export const isAdmin = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
