@@ -1,0 +1,17 @@
+{
+  "name": "pw-marco-uploader",
+  "description": "Telegram uploader bot with admin dashboard (TanStack Start).",
+  "stack": "heroku-24",
+  "buildpacks": [{ "url": "heroku/nodejs" }],
+  "env": {
+    "NITRO_PRESET": { "value": "node-server" },
+    "NODE_VERSION": { "value": "22" },
+    "VITE_SUPABASE_URL": { "description": "Backend URL (copy from the project .env)" },
+    "VITE_SUPABASE_PUBLISHABLE_KEY": { "description": "Backend publishable key (copy from the project .env)" },
+    "VITE_SUPABASE_PROJECT_ID": { "description": "Backend project id (copy from the project .env)" },
+    "SUPABASE_URL": { "description": "Same as VITE_SUPABASE_URL" },
+    "SUPABASE_PUBLISHABLE_KEY": { "description": "Same as VITE_SUPABASE_PUBLISHABLE_KEY" },
+    "SUPABASE_SERVICE_ROLE_KEY": { "description": "Service role key for server-side bot work", "required": false },
+    "TELEGRAM_BOT_TOKEN": { "description": "Bot token from @BotFather (or set it in the dashboard)", "required": false }
+  }
+}
