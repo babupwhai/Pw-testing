@@ -1,8 +1,8 @@
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
 /** Content site the bot browses (batches → subjects → topics → lectures/notes). */
-export const SITE = "https://pwmarco-x.vercel.app";
-const PLAYER = "https://vid-stream-marco.vercel.app/play.php";
+export const SITE = "https://pwmarco-backup.pages.dev";
+const PLAYER = "https://pwxmarco.pages.dev/play.php";
 
 async function api<T>(path: string): Promise<T> {
   const res = await fetch(`${SITE}${path}`, {
