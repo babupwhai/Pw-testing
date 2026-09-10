@@ -74,12 +74,7 @@ async function loadCatalog(): Promise<CatalogRow[]> {
   const res = await fetch(BATCH_LIST, { headers: BROWSER_HEADERS, cache: "no-store" });
   if (!res.ok) throw new Error(`Batch list returned ${res.status}`);
   const json = (await res.json()) as { batches?: CatalogRow[] };
-  const rows = (json.batches ?? []).map((b) => ({
-    batch_id: b.batch_id,
-    name: b.name,
-    exam: b.exam,
-    class: b.class,
-  }));
+  const rows = (json.batches ?? []).filter((b) => b?.batch_id && b?.name);
   catalog = { rows, at: Date.now() };
   return rows;
 }
