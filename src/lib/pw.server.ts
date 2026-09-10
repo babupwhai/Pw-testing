@@ -61,7 +61,12 @@ export async function resolveStream(params: {
 
 export type BatchHit = { id: string; name: string };
 
-type CatalogRow = { batch_id: string; name: string; exam?: string; class?: string };
+type CatalogRow = {
+  batch_id: string;
+  name: string;
+  exam?: string | undefined;
+  class?: string | undefined;
+};
 let catalog: { rows: CatalogRow[]; at: number } | null = null;
 
 async function loadCatalog(): Promise<CatalogRow[]> {
