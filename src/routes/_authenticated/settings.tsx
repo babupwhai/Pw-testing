@@ -96,7 +96,21 @@ function SettingsPage() {
 
   useEffect(() => {
     getBotSettingsFn()
-      .then((data) => setSettings(data))
+      .then((data) =>
+        setSettings(
+          data ??
+            ({
+              default_daily_limit: 10,
+              parallel_jobs: 2,
+              allow_all_users: true,
+              welcome_text: null,
+              max_part_mb: 45,
+            } as never),
+        ),
+      )
+      .catch((err) =>
+        toast.error(err instanceof Error ? err.message : "Settings load nahi hui"),
+      )
       .finally(() => setLoading(false));
   }, []);
 
