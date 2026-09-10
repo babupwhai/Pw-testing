@@ -5,6 +5,7 @@ import {
   listLectures,
   listNotes,
   listTopics,
+  listTodaysClasses,
   loadNav,
   playerLink,
   resolveStream,
@@ -91,6 +92,8 @@ export async function showBatch(chatId: number, messageId: number | null, batchI
       },
     ]);
   }
+  const todayToken = await saveNav({ t: "today", batchId, batchName: info.name });
+  rows.unshift([{ text: "📅 Today's classes", callback_data: `p:td:${todayToken}` }]);
   await panel(
     chatId,
     messageId,
@@ -98,6 +101,64 @@ export async function showBatch(chatId: number, messageId: number | null, batchI
     rows,
   );
 }
+
+export async function showToday(
+  chatId: number,
+  messageId: number | null,
+  batchId: string,
+  batchName: string,
+) {
+  const classes = await listTodaysClasses(batchId);
+  const rows: Button[][] = [];
+  for (const cls of classes.slice(0, 12)) {
+    const token = await saveNav({
+      t: "todayclass",
+      batchId,
+      subjectId: cls.subjectId,
+      videoId: cls.id,
+      name: cls.name,
+      topicName: batchName,
+    });
+    rows.push([{ text: `▶️ ${chunkLabel(cls.name, 36)}`, callback_data: `p:tv:${token}` }]);
+  }
+  await panel(
+    chatId,
+    messageId,
+    rows.length
+      ? `📅 <b>Aaj ki classes</b> — ${escapeHtml(batchName)}`
+      : `📅 Aaj is batch me koi class nahi hai.`,
+    rows,
+  );
+}
+
+async function playById(
+  chatId: number,
+  telegramId: number,
+  nav: { batchId: string; subjectId: string; videoId: string; name: string; topicName?: string },
+) {
+  try {
+    const stream = await resolveStream({
+      batchId: nav.batchId,
+      subjectId: nav.subjectId,
+      videoId: nav.videoId,
+    });
+    if (stream) {
+      await queue(chatId, telegramId, [{ url: stream, title: nav.name }], nav.topicName);
+      return;
+    }
+  } catch (err) {
+    await sendMessage(
+      chatId,
+      `⚠️ <b>${escapeHtml(nav.name)}</b> ka stream nahi mila: ${escapeHtml(errText(err))}`,
+    );
+    return;
+  }
+  await sendMessage(
+    chatId,
+    `🔒 <b>${escapeHtml(nav.name)}</b> ka stream abhi available nahi hai (class shuru nahi hui ya protected hai).`,
+  );
+}
+
 
 type SubjectNav = {
   batchId: string;
@@ -112,7 +173,7 @@ export async function showTopics(
   nav: SubjectNav,
   page = 0,
 ) {
-  const topics = await listTopics(nav.batchSlug, nav.subjectSlug);
+  const topics = await listTopics(nav.batchId, nav.subjectId);
   const perPage = 8;
   const slice = topics.slice(page * perPage, page * perPage + perPage);
   const rows: Button[][] = [];
@@ -152,8 +213,8 @@ type TopicNav = SubjectNav & { topicId: string; topicName: string };
 
 export async function showTopic(chatId: number, messageId: number | null, nav: TopicNav) {
   const [lectures, notes] = await Promise.all([
-    listLectures(nav.batchSlug, nav.subjectSlug, nav.topicId),
-    listNotes(nav.batchSlug, nav.subjectSlug, nav.topicId),
+    listLectures(nav.batchId, nav.subjectId, nav.topicId),
+    listNotes(nav.batchId, nav.subjectId, nav.topicId),
   ]);
 
   const rows: Button[][] = [];
@@ -192,7 +253,11 @@ async function queue(
 }
 
 export async function sendNotes(chatId: number, telegramId: number, nav: TopicNav) {
-  const notes = await listNotes(nav.batchSlug, nav.subjectSlug, nav.topicId);
+  const [notes, dpp] = await Promise.all([
+    listNotes(nav.batchId, nav.subjectId, nav.topicId, "notes"),
+    listNotes(nav.batchId, nav.subjectId, nav.topicId, "DppNotes"),
+  ]);
+  notes.push(...dpp);
   if (!notes.length) {
     await sendMessage(chatId, "📄 Is chapter me koi PDF nahi hai.");
     return;
@@ -297,6 +362,25 @@ export async function handlePwCallback(
       );
     } else if (kind === "t") {
       await showTopic(chatId, messageId, nav as unknown as TopicNav);
+    } else if (kind === "td") {
+      await showToday(
+        chatId,
+        messageId,
+        nav["batchId"] as string,
+        (nav["batchName"] as string) ?? "Batch",
+      );
+    } else if (kind === "tv") {
+      await playById(
+        chatId,
+        telegramId,
+        nav as unknown as {
+          batchId: string;
+          subjectId: string;
+          videoId: string;
+          name: string;
+          topicName?: string;
+        },
+      );
     } else if (kind === "n") {
       await sendNotes(chatId, telegramId, nav as unknown as TopicNav);
     } else if (kind === "v") {
