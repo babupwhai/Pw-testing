@@ -225,6 +225,25 @@ export async function playLecture(
     return;
   }
 
+  // Protected lectures: backend resolves the signed stream and we upload it.
+  try {
+    const stream = await resolveStream({
+      batchId: nav.batchId,
+      subjectId: nav.subjectId,
+      videoId: lecture.id,
+    });
+    if (stream) {
+      await queue(chatId, telegramId, [{ url: stream, title: lecture.name }], nav.topicName);
+      return;
+    }
+  } catch (err) {
+    await sendMessage(
+      chatId,
+      `⚠️ <b>${escapeHtml(lecture.name)}</b> ka stream nahi mila: ${escapeHtml(errText(err))}`,
+    );
+    return;
+  }
+
   const link = playerLink({
     batchId: nav.batchId,
     lecture,
