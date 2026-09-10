@@ -6,15 +6,29 @@ function resolve(base: string, ref: string) {
   return new URL(ref, base).toString();
 }
 
+/** Retries rate limits / hiccups instead of failing the whole lecture. */
+async function fetchRetry(url: string, tries = 4): Promise<Response> {
+  let last = "";
+  for (let attempt = 0; attempt < tries; attempt += 1) {
+    try {
+      const res = await fetch(url, { headers: { "user-agent": "Mozilla/5.0" } });
+      if (res.ok) return res;
+      last = String(res.status);
+      if (res.status !== 429 && res.status < 500) break;
+    } catch (err) {
+      last = err instanceof Error ? err.message : String(err);
+    }
+    await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+  }
+  throw new Error(`Fetch failed (${last})`);
+}
+
 async function fetchText(url: string) {
-  const res = await fetch(url, { headers: { "user-agent": "Mozilla/5.0" } });
-  if (!res.ok) throw new Error(`Playlist fetch failed (${res.status})`);
-  return res.text();
+  return (await fetchRetry(url)).text();
 }
 
 async function fetchBytes(url: string): Promise<Bytes> {
-  const res = await fetch(url, { headers: { "user-agent": "Mozilla/5.0" } });
-  if (!res.ok) throw new Error(`Segment fetch failed (${res.status})`);
+  const res = await fetchRetry(url);
   return new Uint8Array(await res.arrayBuffer()) as Bytes;
 }
 
@@ -228,9 +242,14 @@ export async function buildPart(
     out.push(init);
   }
 
-  const CONCURRENCY = 6;
+  const CONCURRENCY = 12;
   while (index < total) {
-    if (Date.now() > deadline) {
+    // Keep going a little past the soft deadline so a part is never tiny.
+    if (Date.now() > deadline && raw >= maxBytes * 0.7) {
+      outOfTime = true;
+      break;
+    }
+    if (Date.now() > deadline + 45_000) {
       outOfTime = true;
       break;
     }
