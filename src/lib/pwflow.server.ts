@@ -7,6 +7,7 @@ import {
   listTopics,
   loadNav,
   playerLink,
+  resolveStream,
   saveNav,
   searchBatches,
   type Lecture,
@@ -222,6 +223,25 @@ export async function playLecture(
 
   if (/\.m3u8(\?|$)/i.test(url)) {
     await queue(chatId, telegramId, [{ url, title: lecture.name }], nav.topicName);
+    return;
+  }
+
+  // Protected lectures: backend resolves the signed stream and we upload it.
+  try {
+    const stream = await resolveStream({
+      batchId: nav.batchId,
+      subjectId: nav.subjectId,
+      videoId: lecture.id,
+    });
+    if (stream) {
+      await queue(chatId, telegramId, [{ url: stream, title: lecture.name }], nav.topicName);
+      return;
+    }
+  } catch (err) {
+    await sendMessage(
+      chatId,
+      `⚠️ <b>${escapeHtml(lecture.name)}</b> ka stream nahi mila: ${escapeHtml(errText(err))}`,
+    );
     return;
   }
 
