@@ -112,7 +112,7 @@ export async function showTopics(
   nav: SubjectNav,
   page = 0,
 ) {
-  const topics = await listTopics(nav.batchSlug, nav.subjectSlug);
+  const topics = await listTopics(nav.batchId, nav.subjectId);
   const perPage = 8;
   const slice = topics.slice(page * perPage, page * perPage + perPage);
   const rows: Button[][] = [];
@@ -152,8 +152,8 @@ type TopicNav = SubjectNav & { topicId: string; topicName: string };
 
 export async function showTopic(chatId: number, messageId: number | null, nav: TopicNav) {
   const [lectures, notes] = await Promise.all([
-    listLectures(nav.batchSlug, nav.subjectSlug, nav.topicId),
-    listNotes(nav.batchSlug, nav.subjectSlug, nav.topicId),
+    listLectures(nav.batchId, nav.subjectId, nav.topicId),
+    listNotes(nav.batchId, nav.subjectId, nav.topicId),
   ]);
 
   const rows: Button[][] = [];
@@ -192,7 +192,11 @@ async function queue(
 }
 
 export async function sendNotes(chatId: number, telegramId: number, nav: TopicNav) {
-  const notes = await listNotes(nav.batchSlug, nav.subjectSlug, nav.topicId);
+  const [notes, dpp] = await Promise.all([
+    listNotes(nav.batchId, nav.subjectId, nav.topicId, "notes"),
+    listNotes(nav.batchId, nav.subjectId, nav.topicId, "DppNotes"),
+  ]);
+  notes.push(...dpp);
   if (!notes.length) {
     await sendMessage(chatId, "📄 Is chapter me koi PDF nahi hai.");
     return;
