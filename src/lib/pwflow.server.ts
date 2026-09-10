@@ -5,6 +5,7 @@ import {
   listLectures,
   listNotes,
   listTopics,
+  listTodaysClasses,
   loadNav,
   playerLink,
   resolveStream,
@@ -361,6 +362,25 @@ export async function handlePwCallback(
       );
     } else if (kind === "t") {
       await showTopic(chatId, messageId, nav as unknown as TopicNav);
+    } else if (kind === "td") {
+      await showToday(
+        chatId,
+        messageId,
+        nav["batchId"] as string,
+        (nav["batchName"] as string) ?? "Batch",
+      );
+    } else if (kind === "tv") {
+      await playById(
+        chatId,
+        telegramId,
+        nav as unknown as {
+          batchId: string;
+          subjectId: string;
+          videoId: string;
+          name: string;
+          topicName?: string;
+        },
+      );
     } else if (kind === "n") {
       await sendNotes(chatId, telegramId, nav as unknown as TopicNav);
     } else if (kind === "v") {
