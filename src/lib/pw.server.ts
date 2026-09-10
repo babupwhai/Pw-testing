@@ -1,8 +1,9 @@
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
-/** Content site the bot browses (batches → subjects → topics → lectures/notes). */
-export const SITE = "https://vidcloud.eu.org";
-const API = `${SITE}/api`;
+/** Content APIs the bot browses (batches → subjects → topics → lectures/notes). */
+const API = "https://s4-cdn.samfygros.com/radha";
+const BATCH_LIST =
+  "https://raw.githubusercontent.com/semfy-gros/batches/refs/heads/main/batcha.json";
 const DETAIL = "https://video-detail.studyparcham.in/";
 const PROXY = "https://proxy.studyparcham.in";
 const PLAYER = "https://pwxmarco.pages.dev/play.php";
@@ -12,42 +13,22 @@ const BROWSER_HEADERS: Record<string, string> = {
   "accept-language": "en-US,en;q=0.9",
   "user-agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
-  referer: `${SITE}/`,
-  origin: SITE,
 };
 
-let tokenCache: { value: string; at: number } | null = null;
-
-/** The catalog API needs a short-lived bearer token the site itself mints. */
-async function accessToken(): Promise<string | null> {
-  if (tokenCache && Date.now() - tokenCache.at < 10 * 60_000) return tokenCache.value;
-  try {
-    const res = await fetch(`${SITE}/generate_token.php?_t=${Date.now()}`, {
-      headers: BROWSER_HEADERS,
-      cache: "no-store",
-    });
-    if (!res.ok) return null;
-    const json = (await res.json()) as { access_token?: string };
-    if (!json.access_token) return null;
-    tokenCache = { value: json.access_token, at: Date.now() };
-    return json.access_token;
-  } catch {
-    return null;
-  }
-}
-
 async function api<T>(path: string): Promise<T> {
-  const token = await accessToken();
-  const res = await fetch(`${API}${path}`, {
-    headers: {
-      ...BROWSER_HEADERS,
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
-    },
-  });
-  if (!res.ok) throw new Error(`Site returned ${res.status}`);
-  const json = (await res.json()) as { success?: boolean; data?: unknown };
-  if (json.success === false) throw new Error("Site ne data nahi diya");
-  return json.data as T;
+  let lastErr = "";
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const res = await fetch(`${API}${path}`, { headers: BROWSER_HEADERS, cache: "no-store" });
+    if (res.ok) {
+      const json = (await res.json()) as { success?: boolean; data?: unknown };
+      if (json.success === false) throw new Error("Site ne data nahi diya");
+      return json.data as T;
+    }
+    lastErr = `Site returned ${res.status}`;
+    if (res.status !== 429 && res.status < 500) break;
+    await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+  }
+  throw new Error(lastErr || "Site se data nahi aaya");
 }
 
 /**
@@ -80,11 +61,32 @@ export async function resolveStream(params: {
 
 export type BatchHit = { id: string; name: string };
 
+type CatalogRow = { batch_id: string; name: string; exam?: string; class?: string };
+let catalog: { rows: CatalogRow[]; at: number } | null = null;
+
+async function loadCatalog(): Promise<CatalogRow[]> {
+  if (catalog && Date.now() - catalog.at < 30 * 60_000) return catalog.rows;
+  const res = await fetch(BATCH_LIST, { headers: BROWSER_HEADERS, cache: "no-store" });
+  if (!res.ok) throw new Error(`Batch list returned ${res.status}`);
+  const json = (await res.json()) as { batches?: CatalogRow[] };
+  const rows = (json.batches ?? []).map((b) => ({
+    batch_id: b.batch_id,
+    name: b.name,
+    exam: b.exam,
+    class: b.class,
+  }));
+  catalog = { rows, at: Date.now() };
+  return rows;
+}
+
 export async function searchBatches(name: string): Promise<BatchHit[]> {
-  const data = await api<{ _id: string; name: string }[]>(
-    `/v3/batches/search?name=${encodeURIComponent(name)}&page=1`,
-  );
-  return (data ?? []).map((b) => ({ id: b._id, name: b.name }));
+  const rows = await loadCatalog();
+  const q = name.toLowerCase().trim();
+  const hits = rows.filter((r) => (r.name ?? "").toLowerCase().includes(q));
+  return hits.slice(0, 30).map((b) => ({
+    id: b.batch_id,
+    name: b.class ? `${b.name} (${b.class})` : b.name,
+  }));
 }
 
 export type BatchSubject = { id: string; slug: string; name: string; lectures: number };
@@ -118,17 +120,25 @@ export async function batchDetails(batchId: string): Promise<BatchInfo> {
 
 export type Topic = { id: string; name: string; videos: number; notes: number; typeId: string | null };
 
-export async function listTopics(batchSlug: string, subjectSlug: string): Promise<Topic[]> {
-  const data = await api<
-    { _id: string; name: string; videos?: number; notes?: number; typeId?: string }[]
-  >(`/v1/batches/${batchSlug}/subject/${subjectSlug}/topics`);
-  return (data ?? []).map((t) => ({
-    id: t._id,
-    name: t.name,
-    videos: t.videos ?? 0,
-    notes: t.notes ?? 0,
-    typeId: t.typeId ?? null,
-  }));
+export async function listTopics(batchId: string, subjectId: string): Promise<Topic[]> {
+  const out: Topic[] = [];
+  for (let page = 1; page <= 5; page++) {
+    const data = await api<
+      { _id: string; name: string; videos?: number; notes?: number; typeId?: string }[]
+    >(`/v2/batches/${batchId}/subject/${subjectId}/topics?page=${page}`);
+    const rows = data ?? [];
+    out.push(
+      ...rows.map((t) => ({
+        id: t._id,
+        name: t.name,
+        videos: t.videos ?? 0,
+        notes: t.notes ?? 0,
+        typeId: t.typeId ?? null,
+      })),
+    );
+    if (rows.length < 20) break;
+  }
+  return out;
 }
 
 export type Lecture = {
@@ -141,8 +151,8 @@ export type Lecture = {
 };
 
 export async function listLectures(
-  batchSlug: string,
-  subjectSlug: string,
+  batchId: string,
+  subjectId: string,
   topicId: string,
   page = 1,
 ): Promise<Lecture[]> {
@@ -156,7 +166,7 @@ export async function listLectures(
       videoDetails?: { name?: string; duration?: string };
     }[]
   >(
-    `/v2/batches/${batchSlug}/subject/${subjectSlug}/contents?page=${page}&contentType=videos&tag=${topicId}`,
+    `/v2/batches/${batchId}/subject/${subjectId}/contents?page=${page}&contentType=videos&tag=${topicId}`,
   );
 
   return (data ?? []).map((c) => ({
@@ -169,11 +179,40 @@ export async function listLectures(
   }));
 }
 
+export type TodayClass = { id: string; name: string; subjectId: string; time: string | null };
+
+export async function listTodaysClasses(batchId: string): Promise<TodayClass[]> {
+  const data = await api<
+    {
+      data?: {
+        _id: string;
+        topic?: string;
+        batchSubjectId?: string;
+        startTime?: string;
+        isVideoLecture?: boolean;
+      };
+    }[]
+  >(`/v2/batches/${batchId}/todays-schedule`);
+
+  const out: TodayClass[] = [];
+  for (const item of data ?? []) {
+    const d = item.data;
+    if (!d?._id || !d.batchSubjectId) continue;
+    out.push({
+      id: d._id,
+      name: d.topic || "Class",
+      subjectId: d.batchSubjectId,
+      time: d.startTime ?? null,
+    });
+  }
+  return out;
+}
+
 export type NoteFile = { name: string; url: string };
 
 export async function listNotes(
-  batchSlug: string,
-  subjectSlug: string,
+  batchId: string,
+  subjectId: string,
   topicId: string,
   kind: "notes" | "DppNotes" = "notes",
 ): Promise<NoteFile[]> {
@@ -185,7 +224,7 @@ export async function listNotes(
       }[];
     }[]
   >(
-    `/v2/batches/${batchSlug}/subject/${subjectSlug}/contents?page=1&contentType=${kind}&tag=${topicId}`,
+    `/v2/batches/${batchId}/subject/${subjectId}/contents?page=1&contentType=${kind}&tag=${topicId}`,
   );
 
   const out: NoteFile[] = [];
