@@ -82,7 +82,7 @@ export type BatchHit = { id: string; name: string };
 
 export async function searchBatches(name: string): Promise<BatchHit[]> {
   const data = await api<{ _id: string; name: string }[]>(
-    `/api/content/v3/batches/search?name=${encodeURIComponent(name)}&page=1`,
+    `/v3/batches/search?name=${encodeURIComponent(name)}&page=1`,
   );
   return (data ?? []).map((b) => ({ id: b._id, name: b.name }));
 }
@@ -101,7 +101,7 @@ export async function batchDetails(batchId: string): Promise<BatchInfo> {
       subject: string;
       lectureCount?: number;
     }[];
-  }>(`/api/content/v3/batches/${batchId}/details`);
+  }>(`/v3/batches/${batchId}/details`);
 
   return {
     id: data._id,
@@ -121,7 +121,7 @@ export type Topic = { id: string; name: string; videos: number; notes: number; t
 export async function listTopics(batchSlug: string, subjectSlug: string): Promise<Topic[]> {
   const data = await api<
     { _id: string; name: string; videos?: number; notes?: number; typeId?: string }[]
-  >(`/api/content/v2/batches/${batchSlug}/subject/${subjectSlug}/topics`);
+  >(`/v1/batches/${batchSlug}/subject/${subjectSlug}/topics`);
   return (data ?? []).map((t) => ({
     id: t._id,
     name: t.name,
@@ -156,7 +156,7 @@ export async function listLectures(
       videoDetails?: { name?: string; duration?: string };
     }[]
   >(
-    `/api/content/v2/batches/${batchSlug}/subject/${subjectSlug}/contents?page=${page}&contentType=videos&tag=${topicId}`,
+    `/v2/batches/${batchSlug}/subject/${subjectSlug}/contents?page=${page}&contentType=videos&tag=${topicId}`,
   );
 
   return (data ?? []).map((c) => ({
@@ -185,7 +185,7 @@ export async function listNotes(
       }[];
     }[]
   >(
-    `/api/content/v2/batches/${batchSlug}/subject/${subjectSlug}/contents?page=1&contentType=${kind}&tag=${topicId}`,
+    `/v2/batches/${batchSlug}/subject/${subjectSlug}/contents?page=1&contentType=${kind}&tag=${topicId}`,
   );
 
   const out: NoteFile[] = [];
