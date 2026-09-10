@@ -1,21 +1,81 @@
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
 /** Content site the bot browses (batches → subjects → topics → lectures/notes). */
-export const SITE = "https://pwmarco-backup.pages.dev";
+export const SITE = "https://vidcloud.eu.org";
+const API = `${SITE}/api`;
+const DETAIL = "https://video-detail.studyparcham.in/";
+const PROXY = "https://proxy.studyparcham.in";
 const PLAYER = "https://pwxmarco.pages.dev/play.php";
 
+const BROWSER_HEADERS: Record<string, string> = {
+  accept: "application/json, text/plain, */*",
+  "accept-language": "en-US,en;q=0.9",
+  "user-agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+  referer: `${SITE}/`,
+  origin: SITE,
+};
+
+let tokenCache: { value: string; at: number } | null = null;
+
+/** The catalog API needs a short-lived bearer token the site itself mints. */
+async function accessToken(): Promise<string | null> {
+  if (tokenCache && Date.now() - tokenCache.at < 10 * 60_000) return tokenCache.value;
+  try {
+    const res = await fetch(`${SITE}/generate_token.php?_t=${Date.now()}`, {
+      headers: BROWSER_HEADERS,
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as { access_token?: string };
+    if (!json.access_token) return null;
+    tokenCache = { value: json.access_token, at: Date.now() };
+    return json.access_token;
+  } catch {
+    return null;
+  }
+}
+
 async function api<T>(path: string): Promise<T> {
-  const res = await fetch(`${SITE}${path}`, {
+  const token = await accessToken();
+  const res = await fetch(`${API}${path}`, {
     headers: {
-      accept: "application/json",
-      "user-agent": "Mozilla/5.0",
-      referer: `${SITE}/batches`,
+      ...BROWSER_HEADERS,
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
     },
   });
   if (!res.ok) throw new Error(`Site returned ${res.status}`);
   const json = (await res.json()) as { success?: boolean; data?: unknown };
   if (json.success === false) throw new Error("Site ne data nahi diya");
   return json.data as T;
+}
+
+/**
+ * Turns a lecture into a playable .m3u8 link: the detail service returns the
+ * DASH master plus its signature, which the proxy serves as HLS.
+ */
+export async function resolveStream(params: {
+  batchId: string;
+  subjectId: string;
+  videoId: string;
+}): Promise<string | null> {
+  const q = new URLSearchParams({
+    batch_id: params.batchId,
+    video_id: params.videoId,
+    subject_id: params.subjectId,
+  });
+  const res = await fetch(`${DETAIL}?${q.toString()}`, { headers: BROWSER_HEADERS });
+  if (!res.ok) throw new Error(`Stream service returned ${res.status}`);
+  const json = (await res.json()) as {
+    success?: boolean;
+    data?: { url?: string; signedUrl?: string };
+  };
+  const url = json.data?.url;
+  if (!json.success || !url) return null;
+
+  const hls = url.replace(/master\.mpd(\?.*)?$/i, "master.m3u8").replace(/^https?:\/\//, "");
+  const sig = (json.data?.signedUrl ?? "").replace(/^\?/, "");
+  return `${PROXY}/${hls}${sig ? `?${sig}` : ""}`;
 }
 
 export type BatchHit = { id: string; name: string };
