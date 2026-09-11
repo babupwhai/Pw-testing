@@ -13,10 +13,9 @@
     "format": "prettier --write ."
   },
   "engines": {
-    "node": "22.x",
-    "npm": "10.9.4"
+    "node": "22.x"
   },
-  "packageManager": "npm@10.9.4",
+  "packageManager": "pnpm@10.26.1",
   "overrides": {
     "rolldown": "1.2.1"
   },

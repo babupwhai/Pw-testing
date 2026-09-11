@@ -2,8 +2,8 @@
 
 Repo me Heroku ke liye ye files configured hain:
 
-- `package.json`: Node.js 22 aur npm runtime pin
-- `package-lock.json`: repeatable npm install
+- `package.json`: Node.js 22 aur pnpm runtime pin
+- `pnpm-lock.yaml`: repeatable pnpm install
 - `Procfile`: production web process
 - `app.json`: Heroku app/config metadata
 - `.env.example`: required variable names, bina secret values ke
