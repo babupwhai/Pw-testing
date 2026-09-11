@@ -14,12 +14,15 @@ dist-ssr
 .vinxi
 .tanstack/**
 .nitro
+playwright-report/
+test-results/
 *.local
 
 # Local environment files must never be committed.
 .env
 .env.*
 !.env.example
+vendor/telegram-bot-api
 
 # Wrangler / Cloudflare
 .wrangler/

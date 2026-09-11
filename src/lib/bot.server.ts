@@ -168,7 +168,7 @@ async function askQuality(
       (v, i) => `${i + 1}. <b>${escapeHtml(v.label)}</b> — ${v.estBytes ? humanSize(v.estBytes) : "size unknown"}`,
     ),
     "",
-    "Bade lecture parts me aayenge (Telegram ek file 50MB tak leta hai), poora video milega.",
+    "Poora lecture ek MP4 me aayega. Saath me SHA-256 integrity hash bhi milega.",
   ].filter(Boolean);
 
   const keyboard = variants.map((v, i) => [

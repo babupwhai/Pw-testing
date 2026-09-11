@@ -1,1 +1,1 @@
-web: node .output/server/index.mjs
+web: bash scripts/start-heroku.sh

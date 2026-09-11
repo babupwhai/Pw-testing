@@ -6,8 +6,10 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
+    "heroku-postbuild": "bash scripts/install-telegram-bot-api.sh && pnpm run build",
     "build:dev": "vite build --mode development",
     "start": "node .output/server/index.mjs",
+    "smoke:production": "NITRO_PRESET=node-server pnpm run build && playwright test",
     "preview": "vite preview",
     "lint": "eslint .",
     "format": "prettier --write ."
@@ -78,6 +80,7 @@
   "devDependencies": {
     "@eslint/js": "^9.32.0",
     "@lovable.dev/vite-tanstack-config": "^2.20.0",
+    "@playwright/test": "^1.55.0",
     "@types/node": "^22.16.5",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",

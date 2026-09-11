@@ -2,7 +2,10 @@
   "name": "pw-testing",
   "description": "Telegram uploader bot with admin dashboard (TanStack Start).",
   "stack": "heroku-24",
-  "buildpacks": [{ "url": "heroku/nodejs" }],
+  "buildpacks": [
+    { "url": "https://github.com/jonathanong/heroku-buildpack-ffmpeg-latest.git" },
+    { "url": "heroku/nodejs" }
+  ],
   "env": {
     "NITRO_PRESET": { "value": "node-server" },
     "VITE_SUPABASE_URL": { "description": "Backend URL (copy from the project .env)" },
@@ -10,8 +13,11 @@
     "VITE_SUPABASE_PROJECT_ID": { "description": "Backend project id (copy from the project .env)" },
     "SUPABASE_URL": { "description": "Same as VITE_SUPABASE_URL" },
     "SUPABASE_PUBLISHABLE_KEY": { "description": "Same as VITE_SUPABASE_PUBLISHABLE_KEY" },
+    "SUPABASE_SECRET_KEY": { "description": "New sb_secret key for trusted server-side bot work", "required": false },
     "SUPABASE_SERVICE_ROLE_KEY": { "description": "Service role key for server-side bot work", "required": false },
     "TELEGRAM_BOT_TOKEN": { "description": "Bot token from @BotFather (or set it in the dashboard)", "required": false },
+    "TELEGRAM_API_ID": { "description": "Numeric API ID from my.telegram.org for single-file uploads" },
+    "TELEGRAM_API_HASH": { "description": "API hash from my.telegram.org for single-file uploads" },
     "TELEGRAM_API_KEY": { "description": "Optional Telegram connector API key", "required": false },
     "LOVABLE_API_KEY": { "description": "Optional Lovable AI gateway key", "required": false },
     "LOVABLE_CRON_SECRET": { "description": "Optional cron authentication secret", "required": false },

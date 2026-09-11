@@ -32,10 +32,12 @@ async function transport(): Promise<Transport> {
   const token = await getBotToken();
   let value: Transport;
   if (token) {
+    const localBase = process.env["TELEGRAM_LOCAL_API_BASE"]?.replace(/\/+$/, "");
+    const apiBase = localBase || "https://api.telegram.org";
     value = {
       mode: "token",
-      base: `https://api.telegram.org/bot${token}`,
-      fileBase: `https://api.telegram.org/file/bot${token}`,
+      base: `${apiBase}/bot${token}`,
+      fileBase: `${apiBase}/file/bot${token}`,
       headers: {},
     };
   } else {

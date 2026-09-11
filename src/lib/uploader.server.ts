@@ -3,6 +3,15 @@ import type { Database } from "@/integrations/supabase/types";
 import { detectKind, fileNameFromUrl, humanSize } from "@/lib/link-utils";
 import { buildPart } from "@/lib/hls.server";
 import { editMessage, sendMessage, tgCall, tgUpload } from "@/lib/telegram.server";
+import {
+  downloadHlsAsMp4,
+  localBotApiConfigured,
+  sendLargeVideo,
+  sha256File,
+} from "@/lib/large-video.server";
+import { mkdtemp, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 const UPLOAD_CEILING = 48 * 1024 * 1024; // Bot API limit for a single file
 
@@ -150,7 +159,7 @@ async function uploadVideoPart(
  * Streams an HLS lecture of ANY size: it is delivered as consecutive playable
  * parts, and progress is saved so the next run continues where this one stopped.
  */
-async function processHls(job: JobRow, settings: Settings, deadline: number) {
+async function processHlsParts(job: JobRow, settings: Settings, deadline: number) {
   const mediaUrl = job.stream_url ?? job.url;
   const partBytes = Math.min(UPLOAD_CEILING, Math.max(5, settings.max_part_mb) * 1024 * 1024);
   const baseName =
@@ -237,6 +246,91 @@ async function processHls(job: JobRow, settings: Settings, deadline: number) {
   }
 }
 
+function safeVideoName(job: JobRow) {
+  const fromTitle = job.title?.trim() || fileNameFromUrl(job.url, "lecture");
+  const base = fromTitle
+    .replace(/\.m3u8.*$/i, "")
+    .replace(/[^\p{L}\p{N}._ -]+/gu, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 120);
+  return `${base || "lecture"}.mp4`;
+}
+
+async function processHlsSingle(job: JobRow, startedAt: number) {
+  const statusId = job.status_message_id;
+  const quality = job.selected_quality ? ` • ${job.selected_quality}` : "";
+  const fileName = safeVideoName(job);
+  const dir = await mkdtemp(join(tmpdir(), "lecture-"));
+  const outputPath = join(dir, fileName);
+
+  try {
+    if (statusId) {
+      await editMessage(
+        job.chat_id,
+        statusId,
+        `⬇️ Full MP4 ban raha hai${quality}…\n<code>${escapeHtml(fileName)}</code>\nIsme thoda time lag sakta hai.`,
+      );
+    }
+
+    const fileSize = await downloadHlsAsMp4(job.stream_url ?? job.url, outputPath);
+    const hash = await sha256File(outputPath);
+
+    if (statusId) {
+      await editMessage(
+        job.chat_id,
+        statusId,
+        `⬆️ Telegram par ek hi MP4 upload ho raha hai — ${humanSize(fileSize)}${quality}…`,
+      );
+    }
+
+    await sendLargeVideo({
+      chatId: job.chat_id,
+      path: outputPath,
+      fileName,
+      caption:
+        `${job.title?.trim() || fileName}\n${job.selected_quality ?? ""}`.trim() +
+        `\nSHA-256: ${hash}`,
+    });
+
+    await finish(job, {
+      file_name: fileName,
+      file_size: fileSize,
+      method: "local-bot-api",
+      ms: Date.now() - startedAt,
+    });
+    if (statusId) {
+      await editMessage(
+        job.chat_id,
+        statusId,
+        `✅ Full lecture ek MP4 me bhej diya${quality}.\n<code>SHA-256: ${hash}</code>`,
+      );
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+async function processHls(job: JobRow, settings: Settings, deadline: number, startedAt: number) {
+  if (localBotApiConfigured()) {
+    try {
+      await processHlsSingle(job, startedAt);
+      return;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("single MP4 delivery failed; falling back to parts", message);
+      if (job.status_message_id) {
+        await editMessage(
+          job.chat_id,
+          job.status_message_id,
+          `⚠️ Single MP4 upload nahi hua (${escapeHtml(message.slice(0, 160))}). Parts fallback shuru…`,
+        );
+      }
+    }
+  }
+  await processHlsParts(job, settings, deadline);
+}
+
 export async function processJob(
   job: JobRow,
   settings: Settings,
@@ -260,7 +354,7 @@ export async function processJob(
 
   try {
     if (kind === "hls") {
-      await processHls(job, settings, deadline);
+      await processHls(job, settings, deadline, startedAt);
       return;
     }
 
