@@ -17,19 +17,6 @@ work_dir="/tmp/telegram-bot-api"
 temp_dir="/tmp/telegram-bot-api-temp"
 mkdir -p "$work_dir" "$temp_dir"
 
-# The official cloud Bot API must release the bot before a local Bot API server
-# can own it. Repeating logOut on a later dyno restart is harmless.
-node <<'NODE'
-const token = process.env.TELEGRAM_BOT_TOKEN;
-(async () => {
-  try {
-    await fetch(`https://api.telegram.org/bot${token}/logOut`, { method: "POST" });
-  } catch {
-    // It may already be logged out after a previous dyno cycle.
-  }
-})();
-NODE
-
 "$binary" \
   --api-id="$TELEGRAM_API_ID" \
   --api-hash="$TELEGRAM_API_HASH" \
@@ -52,15 +39,22 @@ if ! node <<'NODE'
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const base = process.env.TELEGRAM_LOCAL_API_BASE;
 (async () => {
+  let lastError = "no response";
   for (let attempt = 0; attempt < 180; attempt += 1) {
     try {
       const response = await fetch(`${base}/bot${token}/getMe`, { method: "POST" });
       const body = await response.json();
       if (body.ok) process.exit(0);
-    } catch {}
+      lastError = `${response.status} ${body.description || "unknown response"}`;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+    }
+    if (attempt > 0 && attempt % 15 === 0) {
+      console.error(`Local Telegram Bot API waiting: ${lastError}`);
+    }
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
-  console.error("Local Telegram Bot API server did not become ready");
+  console.error(`Local Telegram Bot API server did not become ready: ${lastError}`);
   process.exit(1);
 })();
 NODE
