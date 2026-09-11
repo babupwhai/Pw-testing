@@ -31,6 +31,20 @@ TELEGRAM_BOT_TOKEN=...               # ya dashboard Settings se daal do
 `NITRO_PRESET=node-server` zaroori hai — isi se build Heroku ke Node server ke liye banta hai.
 Node version `package.json` ke `engines` section se automatically select hota hai.
 
+Heroku Config Vars me values paste karte waqt surrounding quotes mat daalo. Sahi:
+
+```text
+VITE_SUPABASE_URL=https://your-project.supabase.co
+```
+
+Galat:
+
+```text
+VITE_SUPABASE_URL="https://your-project.supabase.co"
+```
+
+`VITE_*` values build ke waqt browser bundle me inject hoti hain, isliye inhe change karne ke baad app ko dobara deploy karna zaroori hai.
+
 ## 3. Deploy
 Deploy tab → **Deploy Branch**. Build ke baad `Procfile` app ko start karega:
 
