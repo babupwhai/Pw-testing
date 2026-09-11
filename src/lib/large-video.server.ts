@@ -6,14 +6,33 @@ import { tgCall } from "@/lib/telegram.server";
 
 const TELEGRAM_FILE_LIMIT = 2_000 * 1024 * 1024;
 
+export type DownloadProgress = {
+  bytes: number;
+  bytesPerSecond: number;
+  elapsedMs: number;
+  mediaTimeSec: number;
+  ffmpegSpeed: string;
+};
+
+export type DownloadResult = {
+  size: number;
+  elapsedMs: number;
+  averageBytesPerSecond: number;
+};
+
 export function localBotApiConfigured() {
   const base = process.env["TELEGRAM_LOCAL_API_BASE"]?.trim();
   return Boolean(base && /^https?:\/\//.test(base));
 }
 
-export async function downloadHlsAsMp4(streamUrl: string, outputPath: string): Promise<number> {
+export async function downloadHlsAsMp4(
+  streamUrl: string,
+  outputPath: string,
+  onProgress?: (progress: DownloadProgress) => void,
+): Promise<DownloadResult> {
   const binary = process.env["FFMPEG_PATH"]?.trim() || "ffmpeg";
   const referer = new URL(streamUrl).origin;
+  const startedAt = Date.now();
 
   await new Promise<void>((resolve, reject) => {
     const child = spawn(binary, [
@@ -21,6 +40,10 @@ export async function downloadHlsAsMp4(streamUrl: string, outputPath: string): P
       "-hide_banner",
       "-loglevel",
       "error",
+      "-progress",
+      "pipe:1",
+      "-stats_period",
+      "2",
       "-headers",
       `User-Agent: Mozilla/5.0\r\nReferer: ${referer}\r\n`,
       "-i",
@@ -37,6 +60,41 @@ export async function downloadHlsAsMp4(streamUrl: string, outputPath: string): P
     ]);
 
     let stderr = "";
+    let stdoutBuffer = "";
+    let bytes = 0;
+    let mediaTimeSec = 0;
+    let ffmpegSpeed = "?";
+    let previousBytes = 0;
+    let previousAt = startedAt;
+    child.stdout?.setEncoding("utf8");
+    child.stdout?.on("data", (chunk: string) => {
+      stdoutBuffer += chunk;
+      const lines = stdoutBuffer.split(/\r?\n/);
+      stdoutBuffer = lines.pop() ?? "";
+      for (const line of lines) {
+        const separator = line.indexOf("=");
+        if (separator < 0) continue;
+        const key = line.slice(0, separator);
+        const value = line.slice(separator + 1);
+        if (key === "total_size") bytes = Number(value) || bytes;
+        if (key === "out_time_us") mediaTimeSec = (Number(value) || 0) / 1_000_000;
+        if (key === "speed") ffmpegSpeed = value || "?";
+        if (key === "progress") {
+          const now = Date.now();
+          const intervalSec = Math.max(0.001, (now - previousAt) / 1000);
+          const bytesPerSecond = Math.max(0, (bytes - previousBytes) / intervalSec);
+          onProgress?.({
+            bytes,
+            bytesPerSecond,
+            elapsedMs: now - startedAt,
+            mediaTimeSec,
+            ffmpegSpeed,
+          });
+          previousBytes = bytes;
+          previousAt = now;
+        }
+      }
+    });
     child.stderr?.setEncoding("utf8");
     child.stderr?.on("data", (chunk: string) => {
       stderr = (stderr + chunk).slice(-3000);
@@ -53,7 +111,12 @@ export async function downloadHlsAsMp4(streamUrl: string, outputPath: string): P
   if (info.size > TELEGRAM_FILE_LIMIT) {
     throw new Error(`Telegram file limit cross ho gayi (${Math.ceil(info.size / 1024 / 1024)} MB)`);
   }
-  return info.size;
+  const elapsedMs = Date.now() - startedAt;
+  return {
+    size: info.size,
+    elapsedMs,
+    averageBytesPerSecond: info.size / Math.max(0.001, elapsedMs / 1000),
+  };
 }
 
 export async function sha256File(path: string): Promise<string> {

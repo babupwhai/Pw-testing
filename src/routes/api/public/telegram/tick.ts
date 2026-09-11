@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createHash, timingSafeEqual } from "crypto";
-import { runQueue } from "@/lib/uploader.server";
+import { recoverInterruptedJobs, startQueueInBackground } from "@/lib/uploader.server";
 import { getBotToken } from "@/lib/telegram.server";
 
 function safeEqual(a: string, b: string) {
@@ -22,7 +22,10 @@ export const Route = createFileRoute("/api/public/telegram/tick")({
     handlers: {
       POST: async ({ request }) => {
         if (!(await authorized(request))) return new Response("Unauthorized", { status: 401 });
-        return Response.json(await runQueue(35_000));
+        if (request.headers.get("x-telegram-recover-interrupted") === "1") {
+          await recoverInterruptedJobs();
+        }
+        return Response.json({ ok: true, started: startQueueInBackground() });
       },
     },
   },

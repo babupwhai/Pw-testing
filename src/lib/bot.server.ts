@@ -110,6 +110,24 @@ async function askQuality(
   user: BotUser,
   link: { url: string; title?: string },
 ): Promise<boolean> {
+  const { data: active } = await supabaseAdmin
+    .from("jobs")
+    .select("id, status")
+    .eq("telegram_id", user.telegram_id)
+    .eq("url", link.url)
+    .in("status", ["awaiting_quality", "queued", "claimed", "processing"])
+    .limit(1)
+    .maybeSingle();
+  if (active) {
+    await sendMessage(
+      chatId,
+      active.status === "awaiting_quality"
+        ? "⚠️ Is lecture ka quality prompt already upar open hai."
+        : "⏳ Ye lecture already download/upload ho raha hai. Live progress message upar update hoga.",
+    );
+    return true;
+  }
+
   const callbackSetup = await ensureCallbackQueries();
   if (!callbackSetup.ok) {
     await sendMessage(chatId, `❌ Quality buttons activate nahi hue: ${escapeHtml(callbackSetup.error)}`);
@@ -246,7 +264,8 @@ export async function handleCallback(cb: TgCallbackQuery): Promise<void> {
     return;
   }
 
-  await supabaseAdmin
+  await answer("Selection save ho rahi hai…");
+  const { error: selectionError } = await supabaseAdmin
     .from("jobs")
     .update({
       status: "queued",
@@ -258,6 +277,15 @@ export async function handleCallback(cb: TgCallbackQuery): Promise<void> {
     })
     .eq("id", job.id)
     .eq("status", "awaiting_quality");
+  if (selectionError) {
+    console.error("quality selection failed", selectionError);
+    await editMessage(
+      job.chat_id,
+      job.status_message_id ?? cb.message?.message_id ?? 0,
+      "❌ Selection save nahi hui. Dobara lecture bhejo.",
+    );
+    return;
+  }
 
   const { data: queued } = await supabaseAdmin
     .from("jobs")
@@ -269,7 +297,6 @@ export async function handleCallback(cb: TgCallbackQuery): Promise<void> {
     return;
   }
 
-  await answer(`${picked.label} select ho gayi`);
   if (job.status_message_id) {
     await editMessage(
       job.chat_id,

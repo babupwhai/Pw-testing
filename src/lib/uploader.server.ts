@@ -51,6 +51,12 @@ export type JobRow = {
   segment_cursor: number;
   part_index: number;
   parts_sent: number;
+  variants: Array<{
+    url: string;
+    label: string;
+    estBytes: number | null;
+    bandwidth?: number | null;
+  }> | null;
 };
 
 function captionFor(job: JobRow, fileName: string) {
@@ -118,7 +124,8 @@ async function sendByUpload(
 type JobUpdate = Database["public"]["Tables"]["jobs"]["Update"];
 
 async function updateJob(id: string, patch: JobUpdate) {
-  await supabaseAdmin.from("jobs").update(patch).eq("id", id);
+  const { error } = await supabaseAdmin.from("jobs").update(patch).eq("id", id);
+  if (error) throw new Error(`Job update failed: ${error.message}`);
 }
 
 async function bumpBatch(batchId: string | null, ok: boolean) {
@@ -257,12 +264,35 @@ function safeVideoName(job: JobRow) {
   return `${base || "lecture"}.mp4`;
 }
 
+function durationLabel(seconds: number) {
+  const whole = Math.max(0, Math.round(seconds));
+  const hours = Math.floor(whole / 3600);
+  const mins = Math.floor((whole % 3600) / 60);
+  const secs = whole % 60;
+  return hours
+    ? `${hours}:${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`
+    : `${mins}:${String(secs).padStart(2, "0")}`;
+}
+
+function speedLabel(bytesPerSecond: number) {
+  return `${(bytesPerSecond / 1024 / 1024).toFixed(bytesPerSecond >= 10 * 1024 * 1024 ? 1 : 2)} MB/s`;
+}
+
 async function processHlsSingle(job: JobRow, startedAt: number) {
   const statusId = job.status_message_id;
   const quality = job.selected_quality ? ` • ${job.selected_quality}` : "";
   const fileName = safeVideoName(job);
   const dir = await mkdtemp(join(tmpdir(), "lecture-"));
   const outputPath = join(dir, fileName);
+  const selected = job.variants?.find((variant) => variant.label === job.selected_quality);
+  const expectedBytes = selected?.estBytes ?? null;
+  const expectedDuration =
+    selected?.bandwidth && selected.estBytes
+      ? (selected.estBytes * 8) / selected.bandwidth
+      : null;
+  let latestDownloadText = "";
+  let lastStatusAt = 0;
+  let progressChain = Promise.resolve();
 
   try {
     if (statusId) {
@@ -273,17 +303,58 @@ async function processHlsSingle(job: JobRow, startedAt: number) {
       );
     }
 
-    const fileSize = await downloadHlsAsMp4(job.stream_url ?? job.url, outputPath);
+    const download = await downloadHlsAsMp4(job.stream_url ?? job.url, outputPath, (metric) => {
+      const now = Date.now();
+      if (now - lastStatusAt < 7_000 || metric.bytes <= 0) return;
+      lastStatusAt = now;
+      const pct = expectedBytes
+        ? Math.min(99, Math.max(1, Math.round((metric.bytes / expectedBytes) * 100)))
+        : 0;
+      const etaSec =
+        expectedBytes && metric.bytesPerSecond > 0
+          ? Math.max(0, (expectedBytes - metric.bytes) / metric.bytesPerSecond)
+          : null;
+      latestDownloadText = [
+        `⬇️ <b>Downloading ${escapeHtml(job.selected_quality ?? "")}</b>`,
+        `${expectedBytes ? `${pct}% • ` : ""}${humanSize(metric.bytes)}${expectedBytes ? ` / ~${humanSize(expectedBytes)}` : ""}`,
+        `⚡ ${speedLabel(metric.bytesPerSecond)} • FFmpeg ${escapeHtml(metric.ffmpegSpeed)}`,
+        `🎞 ${durationLabel(metric.mediaTimeSec)}${expectedDuration ? ` / ~${durationLabel(expectedDuration)}` : ""}${etaSec !== null ? ` • ETA ~${durationLabel(etaSec)}` : ""}`,
+      ].join("\n");
+      progressChain = progressChain
+        .then(async () => {
+          await updateJob(job.id, { progress: pct });
+          if (statusId) await editMessage(job.chat_id, statusId, latestDownloadText);
+          console.log(
+            `[job ${job.id}] download ${pct || "?"}% ${humanSize(metric.bytes)} ${speedLabel(metric.bytesPerSecond)} media=${durationLabel(metric.mediaTimeSec)} ffmpeg=${metric.ffmpegSpeed}`,
+          );
+        })
+        .catch((error) => console.error(`[job ${job.id}] progress update failed`, error));
+    });
+    await progressChain;
+    const fileSize = download.size;
     const hash = await sha256File(outputPath);
 
     if (statusId) {
       await editMessage(
         job.chat_id,
         statusId,
-        `⬆️ Telegram par ek hi MP4 upload ho raha hai — ${humanSize(fileSize)}${quality}…`,
+        `⬆️ <b>Telegram upload shuru</b>${quality}\n${humanSize(fileSize)} • Download avg ${speedLabel(download.averageBytesPerSecond)}\nUpload ke dauran Telegram live bytes expose nahi karta; elapsed time update hoga.`,
       );
     }
 
+    const uploadStartedAt = Date.now();
+    const uploadTicker = setInterval(() => {
+      const elapsed = Date.now() - uploadStartedAt;
+      if (statusId) {
+        void editMessage(
+          job.chat_id,
+          statusId,
+          `⬆️ <b>Telegram par upload ho raha hai</b>${quality}\n${humanSize(fileSize)} • elapsed ${durationLabel(elapsed / 1000)}\n⬇️ Download avg ${speedLabel(download.averageBytesPerSecond)}`,
+        ).catch((error) => console.error(`[job ${job.id}] upload status failed`, error));
+      }
+    }, 10_000);
+    let uploadElapsedMs = 0;
+    try {
     await sendLargeVideo({
       chatId: job.chat_id,
       path: outputPath,
@@ -292,6 +363,11 @@ async function processHlsSingle(job: JobRow, startedAt: number) {
         `${job.title?.trim() || fileName}\n${job.selected_quality ?? ""}`.trim() +
         `\nSHA-256: ${hash}`,
     });
+      uploadElapsedMs = Date.now() - uploadStartedAt;
+    } finally {
+      clearInterval(uploadTicker);
+    }
+    const uploadAverage = fileSize / Math.max(0.001, uploadElapsedMs / 1000);
 
     await finish(job, {
       file_name: fileName,
@@ -303,7 +379,7 @@ async function processHlsSingle(job: JobRow, startedAt: number) {
       await editMessage(
         job.chat_id,
         statusId,
-        `✅ Full lecture ek MP4 me bhej diya${quality}.\n<code>SHA-256: ${hash}</code>`,
+        `✅ Full lecture ek MP4 me bhej diya${quality}.\n⬇️ Download avg ${speedLabel(download.averageBytesPerSecond)} • ⬆️ Upload avg ${speedLabel(uploadAverage)}\n⏱ Total ${durationLabel((Date.now() - startedAt) / 1000)}\n<code>SHA-256: ${hash}</code>`,
       );
     }
   } finally {
@@ -434,7 +510,15 @@ async function finish(
 }
 
 const JOB_FIELDS =
-  "id, chat_id, telegram_id, url, title, kind, attempts, status_message_id, batch_id, stream_url, selected_quality, segment_cursor, part_index, parts_sent";
+  "id, chat_id, telegram_id, url, title, kind, attempts, status_message_id, batch_id, stream_url, selected_quality, segment_cursor, part_index, parts_sent, variants";
+
+export async function recoverInterruptedJobs() {
+  const { error } = await supabaseAdmin
+    .from("jobs")
+    .update({ status: "queued", error: "Dyno restart ke baad automatically resumed" })
+    .in("status", ["claimed", "processing"]);
+  if (error) throw new Error(`Interrupted job recovery failed: ${error.message}`);
+}
 
 /** Claims and runs queued jobs until the time budget runs out. */
 export async function runQueue(budgetMs = 40_000): Promise<{ processed: number; remaining: number }> {
@@ -487,4 +571,17 @@ export async function runQueue(budgetMs = 40_000): Promise<{ processed: number; 
     .eq("status", "queued");
 
   return { processed, remaining: count ?? 0 };
+}
+
+let backgroundQueue: Promise<void> | null = null;
+
+export function startQueueInBackground() {
+  if (backgroundQueue) return false;
+  backgroundQueue = runQueue(6 * 60 * 60 * 1000)
+    .then((result) => console.log(`[queue] background run complete: ${JSON.stringify(result)}`))
+    .catch((error) => console.error("[queue] background run failed", error))
+    .finally(() => {
+      backgroundQueue = null;
+    });
+  return true;
 }

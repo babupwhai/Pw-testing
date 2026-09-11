@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { createHash, timingSafeEqual } from "crypto";
 import { handleUpdate, markUpdateSeen, type TgUpdate } from "@/lib/bot.server";
 import { getBotToken, webhookSecretFor } from "@/lib/telegram.server";
-import { runQueue } from "@/lib/uploader.server";
+import { startQueueInBackground } from "@/lib/uploader.server";
 
 function safeEqual(a: string, b: string) {
   const left = Buffer.from(a);
@@ -49,9 +49,7 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
 
         try {
           await handleUpdate(update);
-          // A callback immediately starts the selected quality. If the runtime
-          // budget ends, the saved segment cursor lets the next webhook/tick resume.
-          await runQueue(update.callback_query ? 50_000 : 35_000);
+          startQueueInBackground();
         } catch (err) {
           console.error("telegram webhook error", err);
         }

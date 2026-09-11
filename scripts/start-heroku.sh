@@ -91,4 +91,33 @@ NODE
 
 node .output/server/index.mjs &
 app_pid=$!
+
+node <<'NODE'
+const { createHash } = require("node:crypto");
+const token = process.env.TELEGRAM_BOT_TOKEN;
+const port = process.env.PORT;
+(async () => {
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/auth`);
+      if (response.ok) break;
+    } catch {}
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  const secret = createHash("sha256").update(`telegram-queue:${token}`).digest("base64url");
+  const response = await fetch(`http://127.0.0.1:${port}/api/public/telegram/tick`, {
+    method: "POST",
+    headers: {
+      "x-telegram-queue-secret": secret,
+      "x-telegram-recover-interrupted": "1",
+    },
+  });
+  if (!response.ok) {
+    console.error(`Queue startup failed: HTTP ${response.status}`);
+    process.exit(1);
+  }
+  console.log("Interrupted Telegram jobs recovered and queue started");
+})();
+NODE
+
 wait "$app_pid"
