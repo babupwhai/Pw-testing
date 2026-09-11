@@ -40,19 +40,25 @@ const token = process.env.TELEGRAM_BOT_TOKEN;
 const base = process.env.TELEGRAM_LOCAL_API_BASE;
 (async () => {
   let lastError = "no response";
-  for (let attempt = 0; attempt < 180; attempt += 1) {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    let waitSeconds = 5;
     try {
       const response = await fetch(`${base}/bot${token}/getMe`, { method: "POST" });
       const body = await response.json();
       if (body.ok) process.exit(0);
       lastError = `${response.status} ${body.description || "unknown response"}`;
+      if (response.status === 429) {
+        const described = /retry after (\d+)/i.exec(body.description || "")?.[1];
+        waitSeconds = Math.max(
+          5,
+          Number(body.parameters?.retry_after ?? described ?? 5) + 1,
+        );
+      }
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
     }
-    if (attempt > 0 && attempt % 15 === 0) {
-      console.error(`Local Telegram Bot API waiting: ${lastError}`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    console.error(`Local Telegram Bot API waiting ${waitSeconds}s: ${lastError}`);
+    await new Promise((resolve) => setTimeout(resolve, waitSeconds * 1000));
   }
   console.error(`Local Telegram Bot API server did not become ready: ${lastError}`);
   process.exit(1);
