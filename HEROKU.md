@@ -29,6 +29,7 @@ SUPABASE_SERVICE_ROLE_KEY=...        # legacy server-side key; optional alternat
 TELEGRAM_BOT_TOKEN=...               # ya dashboard Settings se daal do
 TELEGRAM_API_ID=...                  # my.telegram.org → API development tools
 TELEGRAM_API_HASH=...                # my.telegram.org → API development tools
+TELEGRAM_WEBHOOK_URL=https://your-app.example/api/public/telegram/webhook
 ```
 
 `NITRO_PRESET=node-server` zaroori hai — isi se build Heroku ke Node server ke liye banta hai.
@@ -55,6 +56,7 @@ VITE_SUPABASE_URL="https://your-project.supabase.co"
 - Heroku app me FFmpeg buildpack Node.js buildpack se **pehle** laga hona chahiye.
 - `TELEGRAM_API_ID` aur `TELEGRAM_API_HASH` Config Vars required hain.
 - Bot token dashboard Settings ya `TELEGRAM_BOT_TOKEN` me configured hona chahiye.
+- `TELEGRAM_WEBHOOK_URL` deployed app ka public `/api/public/telegram/webhook` URL hona chahiye.
 - Heroku build exact-version local Bot API binary download karke pinned SHA-256 verify karta hai.
 - MP4 pehle dyno ke temporary disk par banta hai, phir Telegram par upload hota hai aur delete ho jata hai.
 - Telegram ki 2 GB local Bot API limit cross hone ya temporary failure par app 50 MB parts fallback use karta hai.

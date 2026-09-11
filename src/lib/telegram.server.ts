@@ -76,7 +76,7 @@ export async function ensureCallbackQueries(): Promise<TgResult<true>> {
     .select("webhook_url")
     .eq("id", 1)
     .maybeSingle();
-  const webhookUrl = data?.webhook_url?.trim();
+  const webhookUrl = data?.webhook_url?.trim() || process.env["TELEGRAM_WEBHOOK_URL"]?.trim();
   if (!webhookUrl) return { ok: false, error: "Webhook URL not set" };
 
   const result = await tgCall("setWebhook", {

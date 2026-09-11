@@ -4,6 +4,7 @@ set -euo pipefail
 : "${TELEGRAM_API_ID:?TELEGRAM_API_ID is required}"
 : "${TELEGRAM_API_HASH:?TELEGRAM_API_HASH is required}"
 : "${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN is required}"
+: "${TELEGRAM_WEBHOOK_URL:?TELEGRAM_WEBHOOK_URL is required}"
 
 binary="${TELEGRAM_BOT_API_BINARY:-$PWD/vendor/telegram-bot-api}"
 if [[ ! -x "$binary" ]]; then
@@ -47,16 +48,45 @@ trap cleanup EXIT INT TERM
 node <<'NODE'
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const base = process.env.TELEGRAM_LOCAL_API_BASE;
-for (let attempt = 0; attempt < 60; attempt += 1) {
-  try {
-    const response = await fetch(`${base}/bot${token}/getMe`, { method: "POST" });
-    const body = await response.json();
-    if (body.ok) process.exit(0);
-  } catch {}
-  await new Promise((resolve) => setTimeout(resolve, 1000));
-}
-console.error("Local Telegram Bot API server did not become ready");
-process.exit(1);
+(async () => {
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    try {
+      const response = await fetch(`${base}/bot${token}/getMe`, { method: "POST" });
+      const body = await response.json();
+      if (body.ok) process.exit(0);
+    } catch {}
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  console.error("Local Telegram Bot API server did not become ready");
+  process.exit(1);
+})();
+NODE
+
+node <<'NODE'
+const { createHash } = require("node:crypto");
+const token = process.env.TELEGRAM_BOT_TOKEN;
+const base = process.env.TELEGRAM_LOCAL_API_BASE;
+const url = process.env.TELEGRAM_WEBHOOK_URL;
+(async () => {
+  const secret = createHash("sha256").update(`telegram-webhook:${token}`).digest("base64url");
+  const response = await fetch(`${base}/bot${token}/setWebhook`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      url,
+      secret_token: secret,
+      allowed_updates: ["message", "edited_message", "callback_query"],
+      drop_pending_updates: false,
+      max_connections: 40,
+    }),
+  });
+  const body = await response.json();
+  if (!body.ok) {
+    console.error(`Local Telegram webhook setup failed: ${body.description || response.status}`);
+    process.exit(1);
+  }
+  console.log("Local Telegram Bot API and webhook are ready");
+})();
 NODE
 
 node .output/server/index.mjs &
