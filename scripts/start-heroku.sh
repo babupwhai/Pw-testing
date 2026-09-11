@@ -40,16 +40,19 @@ NODE
   >/tmp/telegram-bot-api.log 2>&1 &
 telegram_pid=$!
 
+node .output/server/index.mjs &
+app_pid=$!
+
 cleanup() {
   kill "$telegram_pid" "${app_pid:-}" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
-node <<'NODE'
+if ! node <<'NODE'
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const base = process.env.TELEGRAM_LOCAL_API_BASE;
 (async () => {
-  for (let attempt = 0; attempt < 60; attempt += 1) {
+  for (let attempt = 0; attempt < 180; attempt += 1) {
     try {
       const response = await fetch(`${base}/bot${token}/getMe`, { method: "POST" });
       const body = await response.json();
@@ -61,6 +64,11 @@ const base = process.env.TELEGRAM_LOCAL_API_BASE;
   process.exit(1);
 })();
 NODE
+then
+  echo "Local Telegram Bot API startup log:" >&2
+  tail -100 /tmp/telegram-bot-api.log >&2 || true
+  exit 1
+fi
 
 node <<'NODE'
 const { createHash } = require("node:crypto");
@@ -88,9 +96,6 @@ const url = process.env.TELEGRAM_WEBHOOK_URL;
   console.log("Local Telegram Bot API and webhook are ready");
 })();
 NODE
-
-node .output/server/index.mjs &
-app_pid=$!
 
 node <<'NODE'
 const { createHash } = require("node:crypto");
