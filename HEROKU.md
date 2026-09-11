@@ -1,17 +1,24 @@
-# Heroku par host kaise kare (GitHub se)
+# `pw-testing` ko Heroku par host kaise kare
+
+Repo me Heroku ke liye ye files configured hain:
+
+- `package.json`: Node.js 22 aur npm runtime pin
+- `package-lock.json`: repeatable npm install
+- `Procfile`: production web process
+- `app.json`: Heroku app/config metadata
+- `.env.example`: required variable names, bina secret values ke
 
 ## 1. GitHub se connect
 1. Lovable me chat input ke `+` menu → GitHub → Connect project → repo bana lo.
-2. Heroku Dashboard → New → Create new app → app name choose karo.
-3. App → Deploy tab → Deployment method → **GitHub** → repo select → Connect.
+2. Heroku Dashboard me existing **pw-testing** app kholo.
+3. App → Deploy tab → Deployment method → **GitHub** → `babupwhai/Pw-testing` repo select → Connect.
 4. Enable Automatic Deploys (main branch) — ab har Lovable change auto deploy hoga.
 
 ## 2. Config Vars (Settings → Reveal Config Vars)
-Ye add karo (values project ki `.env` file se copy karo):
+Ye add karo. Secret values ko GitHub ya `.env` file me commit mat karo:
 
 ```
 NITRO_PRESET=node-server
-NODE_VERSION=22
 VITE_SUPABASE_URL=...
 VITE_SUPABASE_PUBLISHABLE_KEY=...
 VITE_SUPABASE_PROJECT_ID=...
@@ -22,20 +29,30 @@ TELEGRAM_BOT_TOKEN=...               # ya dashboard Settings se daal do
 ```
 
 `NITRO_PRESET=node-server` zaroori hai — isi se build Heroku ke Node server ke liye banta hai.
+Node version `package.json` ke `engines` section se automatically select hota hai.
 
 ## 3. Deploy
-Deploy tab → Deploy Branch. Build ke baad `Procfile` app ko start karega:
+Deploy tab → **Deploy Branch**. Build ke baad `Procfile` app ko start karega:
 
 ```
 web: node .output/server/index.mjs
 ```
 
-## 4. Bot ko Heroku URL par point karo
+Deploy complete hone ke baad **Resources** tab me confirm karo ki `web` dyno quantity `1` hai.
+
+## 4. Basic test
+
+1. `https://pw-testing-f2635b89a1ca.herokuapp.com/` kholo.
+2. Heroku → **More → View logs** me startup errors check karo.
+3. Login/auth page aur dashboard load karke dekho.
+4. Agar bot configured hai to Telegram par `/start` bhejo.
+
+## 5. Bot ko Heroku URL par point karo
 1. `https://<app-name>.herokuapp.com/auth` par login karo (pwmarcofounder@gmail.com).
 2. Settings page → bot token daalo → Connect. Webhook usi Heroku URL par set ho jayega.
 3. `/start` bhejo Telegram par — bot reply karega.
 
-## 5. Queue tick (optional, badi files ke liye)
+## 6. Queue tick (optional, badi files ke liye)
 Heroku Scheduler add-on lagao aur har 10 min ye chalao:
 
 ```
@@ -44,3 +61,7 @@ curl -X POST https://<app-name>.herokuapp.com/api/public/telegram/tick \
 ```
 
 `TICK_SECRET` dashboard Settings page par dikhta hai.
+
+## 7. Har future change ka deploy
+
+Automatic Deploys enabled hone par `main` branch par har successful GitHub push Heroku deploy trigger karega. Manual deploy ke liye Deploy tab me latest `main` branch ke saamne **Deploy Branch** click karo.
