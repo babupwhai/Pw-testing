@@ -20,6 +20,12 @@ export type DownloadResult = {
   averageBytesPerSecond: number;
 };
 
+export type VideoMetadata = {
+  durationSec: number;
+  width: number;
+  height: number;
+};
+
 export function localBotApiConfigured() {
   const base = process.env["TELEGRAM_LOCAL_API_BASE"]?.trim();
   return Boolean(base && /^https?:\/\//.test(base));
@@ -46,6 +52,14 @@ export async function downloadHlsAsMp4(
       "2",
       "-headers",
       `User-Agent: Mozilla/5.0\r\nReferer: ${referer}\r\n`,
+      "-reconnect",
+      "1",
+      "-reconnect_streamed",
+      "1",
+      "-reconnect_delay_max",
+      "8",
+      "-fflags",
+      "+genpts",
       "-i",
       streamUrl,
       "-map",
@@ -54,6 +68,8 @@ export async function downloadHlsAsMp4(
       "0:a:0?",
       "-c",
       "copy",
+      "-avoid_negative_ts",
+      "make_zero",
       "-movflags",
       "+faststart",
       outputPath,
@@ -101,7 +117,8 @@ export async function downloadHlsAsMp4(
     });
     child.on("error", reject);
     child.on("close", (code) => {
-      if (code === 0) resolve();
+      const skippedSegment = /failed to open segment|error when loading first segment|HTTP error/i.test(stderr);
+      if (code === 0 && !skippedSegment) resolve();
       else reject(new Error(`Full MP4 nahi ban paya (FFmpeg ${code}): ${stderr.slice(-500)}`));
     });
   });
@@ -117,6 +134,77 @@ export async function downloadHlsAsMp4(
     elapsedMs,
     averageBytesPerSecond: info.size / Math.max(0.001, elapsedMs / 1000),
   };
+}
+
+export async function probeVideo(path: string): Promise<VideoMetadata> {
+  const binary = process.env["FFPROBE_PATH"]?.trim() || "ffprobe";
+  const output = await new Promise<string>((resolve, reject) => {
+    const child = spawn(binary, [
+      "-v",
+      "error",
+      "-show_entries",
+      "format=duration:stream=codec_type,width,height",
+      "-of",
+      "json",
+      path,
+    ]);
+    let stdout = "";
+    let stderr = "";
+    child.stdout?.setEncoding("utf8");
+    child.stderr?.setEncoding("utf8");
+    child.stdout?.on("data", (chunk: string) => (stdout += chunk));
+    child.stderr?.on("data", (chunk: string) => (stderr += chunk));
+    child.on("error", reject);
+    child.on("close", (code) =>
+      code === 0 ? resolve(stdout) : reject(new Error(`ffprobe failed (${code}): ${stderr.slice(-300)}`)),
+    );
+  });
+  const parsed = JSON.parse(output) as {
+    format?: { duration?: string };
+    streams?: Array<{ codec_type?: string; width?: number; height?: number }>;
+  };
+  const video = parsed.streams?.find((stream) => stream.codec_type === "video");
+  const durationSec = Number(parsed.format?.duration ?? 0);
+  const width = Number(video?.width ?? 0);
+  const height = Number(video?.height ?? 0);
+  if (!durationSec || !width || !height) throw new Error("MP4 duration/resolution metadata missing");
+  return { durationSec, width, height };
+}
+
+export async function generateVideoThumbnail(
+  videoPath: string,
+  thumbnailPath: string,
+  durationSec: number,
+): Promise<void> {
+  const binary = process.env["FFMPEG_PATH"]?.trim() || "ffmpeg";
+  const seekSec = Math.max(1, Math.min(30, durationSec * 0.1));
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(binary, [
+      "-y",
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-ss",
+      String(seekSec),
+      "-i",
+      videoPath,
+      "-frames:v",
+      "1",
+      "-vf",
+      "scale=320:-2",
+      "-q:v",
+      "3",
+      thumbnailPath,
+    ]);
+    let stderr = "";
+    child.stderr?.setEncoding("utf8");
+    child.stderr?.on("data", (chunk: string) => (stderr = (stderr + chunk).slice(-1000)));
+    child.on("error", reject);
+    child.on("close", (code) =>
+      code === 0 ? resolve() : reject(new Error(`Thumbnail failed (${code}): ${stderr.slice(-300)}`)),
+    );
+  });
+  if (!(await stat(thumbnailPath)).size) throw new Error("Generated thumbnail is empty");
 }
 
 export async function sha256File(path: string): Promise<string> {
@@ -135,6 +223,8 @@ export async function sendLargeVideo(params: {
   path: string;
   fileName: string;
   caption: string;
+  thumbnailPath: string;
+  metadata: VideoMetadata;
 }) {
   if (!localBotApiConfigured()) {
     throw new Error("Local Telegram Bot API configured nahi hai");
@@ -145,6 +235,10 @@ export async function sendLargeVideo(params: {
     video: `file://${params.path}`,
     caption: params.caption,
     supports_streaming: true,
+    duration: Math.round(params.metadata.durationSec),
+    width: params.metadata.width,
+    height: params.metadata.height,
+    thumbnail: `file://${params.thumbnailPath}`,
   });
   if (!result.ok) throw new Error(result.error);
 }

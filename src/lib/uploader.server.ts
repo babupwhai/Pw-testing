@@ -5,7 +5,9 @@ import { buildPart } from "@/lib/hls.server";
 import { editMessage, sendMessage, tgCall, tgUpload } from "@/lib/telegram.server";
 import {
   downloadHlsAsMp4,
+  generateVideoThumbnail,
   localBotApiConfigured,
+  probeVideo,
   sendLargeVideo,
   sha256File,
 } from "@/lib/large-video.server";
@@ -56,6 +58,7 @@ export type JobRow = {
     label: string;
     estBytes: number | null;
     bandwidth?: number | null;
+    durationSec?: number | null;
   }> | null;
 };
 
@@ -284,12 +287,10 @@ async function processHlsSingle(job: JobRow, startedAt: number) {
   const fileName = safeVideoName(job);
   const dir = await mkdtemp(join(tmpdir(), "lecture-"));
   const outputPath = join(dir, fileName);
+  const thumbnailPath = join(dir, "thumbnail.jpg");
   const selected = job.variants?.find((variant) => variant.label === job.selected_quality);
   const expectedBytes = selected?.estBytes ?? null;
-  const expectedDuration =
-    selected?.bandwidth && selected.estBytes
-      ? (selected.estBytes * 8) / selected.bandwidth
-      : null;
+  const expectedDuration = selected?.durationSec ?? null;
   let latestDownloadText = "";
   let lastStatusAt = 0;
   let progressChain = Promise.resolve();
@@ -332,6 +333,17 @@ async function processHlsSingle(job: JobRow, startedAt: number) {
     });
     await progressChain;
     const fileSize = download.size;
+    const metadata = await probeVideo(outputPath);
+    if (expectedDuration) {
+      const durationDelta = Math.abs(metadata.durationSec - expectedDuration);
+      const tolerance = Math.max(15, expectedDuration * 0.01);
+      if (durationDelta > tolerance) {
+        throw new Error(
+          `Duration integrity check failed: source ${durationLabel(expectedDuration)}, MP4 ${durationLabel(metadata.durationSec)}`,
+        );
+      }
+    }
+    await generateVideoThumbnail(outputPath, thumbnailPath, metadata.durationSec);
     const hash = await sha256File(outputPath);
 
     if (statusId) {
@@ -361,7 +373,9 @@ async function processHlsSingle(job: JobRow, startedAt: number) {
       fileName,
       caption:
         `${job.title?.trim() || fileName}\n${job.selected_quality ?? ""}`.trim() +
-        `\nSHA-256: ${hash}`,
+        `\n${humanSize(fileSize)} • ${durationLabel(metadata.durationSec)}\nSHA-256: ${hash}`,
+      thumbnailPath,
+      metadata,
     });
       uploadElapsedMs = Date.now() - uploadStartedAt;
     } finally {

@@ -183,15 +183,16 @@ async function askQuality(
     mins ? `⏱ Length: ~${mins} min` : "",
     "",
     ...variants.map(
-      (v, i) => `${i + 1}. <b>${escapeHtml(v.label)}</b> — ${v.estBytes ? humanSize(v.estBytes) : "size unknown"}`,
+      (v, i) => `${i + 1}. <b>${escapeHtml(v.label)}</b> — ${v.estBytes ? `≈${humanSize(v.estBytes)}` : "size unknown"}`,
     ),
     "",
-    "Poora lecture ek MP4 me aayega. Saath me SHA-256 integrity hash bhi milega.",
+    "≈ size HLS segments se sampled estimate hai; exact MP4 size download ke baad dikhega.",
+    "Poora lecture ek MP4 me aayega. Duration verify hogi aur SHA-256 hash bhi milega.",
   ].filter(Boolean);
 
   const keyboard = variants.map((v, i) => [
     {
-      text: `${v.label} • ${v.estBytes ? humanSize(v.estBytes) : "?"}`,
+      text: `${v.label} • ${v.estBytes ? `≈${humanSize(v.estBytes)}` : "?"}`,
       callback_data: `q:${job.id}:${i}`,
     },
   ]);

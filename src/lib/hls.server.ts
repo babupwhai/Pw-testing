@@ -27,6 +27,35 @@ async function fetchText(url: string) {
   return (await fetchRetry(url)).text();
 }
 
+async function estimateMediaBytes(media: MediaPlaylist, durationSec: number): Promise<number | null> {
+  if (!media.segments.length || !durationSec) return null;
+  const sampleCount = Math.min(32, media.segments.length);
+  const indexes = Array.from({ length: sampleCount }, (_, index) =>
+    Math.min(media.segments.length - 1, Math.floor((index * media.segments.length) / sampleCount)),
+  );
+  const samples = await Promise.all(
+    indexes.map(async (index) => {
+      try {
+        const response = await fetch(media.segments[index]!, {
+          method: "HEAD",
+          headers: { "user-agent": "Mozilla/5.0" },
+          signal: AbortSignal.timeout(4_000),
+        });
+        const bytes = Number(response.headers.get("content-length") ?? 0);
+        const seconds = media.durations[index] ?? 0;
+        return response.ok && bytes > 0 && seconds > 0 ? { bytes, seconds } : null;
+      } catch {
+        return null;
+      }
+    }),
+  );
+  const valid = samples.filter((sample): sample is { bytes: number; seconds: number } => Boolean(sample));
+  if (valid.length < Math.min(6, sampleCount)) return null;
+  const sampledBytes = valid.reduce((sum, sample) => sum + sample.bytes, 0);
+  const sampledSeconds = valid.reduce((sum, sample) => sum + sample.seconds, 0);
+  return Math.round((sampledBytes / sampledSeconds) * durationSec);
+}
+
 async function fetchBytes(url: string): Promise<Bytes> {
   const res = await fetchRetry(url);
   return new Uint8Array(await res.arrayBuffer()) as Bytes;
@@ -65,6 +94,7 @@ export type StreamVariant = {
   resolution: string | null;
   label: string;
   estBytes: number | null;
+  durationSec: number | null;
 };
 
 export type StreamInfo = { variants: StreamVariant[]; durationSec: number | null };
@@ -95,6 +125,7 @@ function parseMaster(text: string, base: string): StreamVariant[] {
       resolution,
       label: height ? `${height}p` : bandwidth ? `${Math.round(bandwidth / 1000)} kbps` : "auto",
       estBytes: null,
+      durationSec: null,
     });
   }
   variants.sort((a, b) => b.bandwidth - a.bandwidth);
@@ -150,6 +181,7 @@ export async function probeStream(url: string): Promise<StreamInfo> {
           resolution: null,
           label: "Original",
           estBytes: null,
+          durationSec,
         },
       ],
     };
@@ -164,9 +196,22 @@ export async function probeStream(url: string): Promise<StreamInfo> {
     durationSec = null;
   }
 
-  for (const v of variants) {
-    v.estBytes = durationSec && v.bandwidth ? Math.round((v.bandwidth / 8) * durationSec) : null;
-  }
+  await Promise.all(
+    variants.map(async (variant) => {
+      if (!durationSec) return;
+      variant.durationSec = durationSec;
+      try {
+        const media = parseMedia(await fetchText(variant.url), variant.url);
+        variant.estBytes =
+          (await estimateMediaBytes(media, durationSec)) ??
+          (variant.bandwidth ? Math.round((variant.bandwidth / 8) * durationSec) : null);
+      } catch {
+        variant.estBytes = variant.bandwidth
+          ? Math.round((variant.bandwidth / 8) * durationSec)
+          : null;
+      }
+    }),
+  );
   return { variants, durationSec };
 }
 
