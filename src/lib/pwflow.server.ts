@@ -236,7 +236,7 @@ export async function showTopic(chatId: number, messageId: number | null, nav: T
     chatId,
     messageId,
     rows.length
-      ? `📘 <b>${escapeHtml(nav.topicName)}</b>\nLecture par tap karo — video bot upload karega.`
+      ? `📘 <b>${escapeHtml(nav.topicName)}</b>\nLecture par tap karo — web player me seedha chalega.`
       : `📘 <b>${escapeHtml(nav.topicName)}</b>\nIsme abhi content nahi hai.`,
     rows,
   );
@@ -272,7 +272,7 @@ export async function sendNotes(chatId: number, telegramId: number, nav: TopicNa
 
 export async function playLecture(
   chatId: number,
-  telegramId: number,
+  _telegramId: number,
   nav: TopicNav & { lecture: Lecture },
 ) {
   const { lecture } = nav;
@@ -286,46 +286,21 @@ export async function playLecture(
     return;
   }
 
-  if (/\.m3u8(\?|$)/i.test(url)) {
-    await queue(chatId, telegramId, [{ url, title: lecture.name }], nav.topicName);
-    return;
-  }
-
-  // Protected lectures: backend resolves the signed stream and we upload it.
-  try {
-    const stream = await resolveStream({
-      batchId: nav.batchId,
-      subjectId: nav.subjectId,
-      videoId: lecture.id,
-    });
-    if (stream) {
-      await queue(chatId, telegramId, [{ url: stream, title: lecture.name }], nav.topicName);
-      return;
-    }
-  } catch (err) {
-    await sendMessage(
-      chatId,
-      `⚠️ <b>${escapeHtml(lecture.name)}</b> ka stream nahi mila: ${escapeHtml(errText(err))}`,
-    );
-    return;
-  }
-
   const link = playerLink({
     batchId: nav.batchId,
     lecture,
     subjectId: nav.subjectId,
     topicId: nav.topicId,
   });
-  await sendMessage(
-    chatId,
-    [
-      `🔒 <b>${escapeHtml(lecture.name)}</b>`,
-      "Is lecture ka stream protected (DRM) hai, isliye bot ise upload nahi kar sakta.",
-      `Player me dekho: ${escapeHtml(link)}`,
-      "",
-      "Agar aapke paas iska <code>.m3u8</code> link hai to wo bhejo — main video bana dunga.",
-    ].join("\n"),
-  );
+  await tgCall("sendMessage", {
+    chat_id: chatId,
+    text: `▶️ <b>${escapeHtml(lecture.name)}</b>\nLecture web player me dekho:`,
+    parse_mode: "HTML",
+    disable_web_page_preview: true,
+    reply_markup: {
+      inline_keyboard: [[{ text: "▶️ Lecture Play Karo", url: link }]],
+    },
+  });
 }
 
 /** Routes every "p:*" inline button. */
