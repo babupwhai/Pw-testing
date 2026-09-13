@@ -12,8 +12,9 @@ import {
 import { escapeHtml } from "@/lib/uploader.server";
 
 const MAX_FILE_BYTES = 18 * 1024 * 1024;
-const STREAM_CONCURRENCY = 4;
+const STREAM_CONCURRENCY = 2;
 const PROGRESS_EVERY_MS = 6_000;
+const REQUEST_GAP_MS = 350;
 const LEASE_SECONDS = 300;
 const MAX_SUBJECTS = 80;
 const MAX_TOPICS = 1_000;
@@ -61,6 +62,32 @@ function validUrl(value: string): string | null {
   }
 }
 
+function wait(milliseconds: number) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function withSiteRetry<T>(
+  operation: () => Promise<T>,
+  attempts = 5,
+): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (attempt === attempts - 1) break;
+      const message = error instanceof Error ? error.message : String(error);
+      const rateLimited = /\b429\b|too many requests|rate limit/i.test(message);
+      const delay = rateLimited
+        ? Math.min(30_000, 2_000 * 2 ** attempt)
+        : Math.min(8_000, 750 * 2 ** attempt);
+      await wait(delay);
+    }
+  }
+  throw lastError;
+}
+
 async function mapLimit<T, R>(
   items: T[],
   limit: number,
@@ -89,7 +116,7 @@ async function lectureLink(
   const source = validUrl(lecture.url ?? "");
   if (source && /youtube\.com|youtu\.be/i.test(source)) return source;
 
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 4; attempt++) {
     try {
       const stream = await resolveStream({
         batchId,
@@ -98,7 +125,7 @@ async function lectureLink(
       });
       return stream ? validUrl(stream) : null;
     } catch {
-      if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 500));
+      if (attempt < 3) await wait(Math.min(12_000, 1_500 * 2 ** attempt));
     }
   }
   return null;
@@ -108,7 +135,7 @@ export async function buildBatchTxt(
   batchId: string,
   onProgress: (text: string) => void,
 ) {
-  const info = await batchDetails(batchId);
+  const info = await withSiteRetry(() => batchDetails(batchId));
   if (info.subjects.length > MAX_SUBJECTS) {
     throw new Error("Batch me supported limit se zyada subjects hain.");
   }
@@ -119,7 +146,7 @@ export async function buildBatchTxt(
 
   for (const subject of info.subjects) {
     lines.push(`## SUBJECT: ${subject.name}`, "");
-    const topics = await listTopics(batchId, subject.id);
+    const topics = await withSiteRetry(() => listTopics(batchId, subject.id));
     chapterCount += topics.length;
     if (chapterCount > MAX_TOPICS) {
       throw new Error("Batch me supported limit se zyada chapters hain.");
@@ -127,11 +154,17 @@ export async function buildBatchTxt(
 
     for (const topic of topics) {
       lines.push(`### CHAPTER: ${topic.name}`);
-      const [lectures, notes, dpp] = await Promise.all([
+      const lectures = await withSiteRetry(() =>
         listLectures(batchId, subject.id, topic.id),
+      );
+      await wait(REQUEST_GAP_MS);
+      const notes = await withSiteRetry(() =>
         listNotes(batchId, subject.id, topic.id, "notes"),
+      );
+      await wait(REQUEST_GAP_MS);
+      const dpp = await withSiteRetry(() =>
         listNotes(batchId, subject.id, topic.id, "DppNotes"),
-      ]);
+      );
       const lectureLinks = await mapLimit(
         lectures,
         STREAM_CONCURRENCY,
@@ -159,6 +192,7 @@ export async function buildBatchTxt(
       onProgress(
         `⏳ File ban rahi hai…\n📚 ${escapeHtml(info.name)}\n📂 Chapters: <b>${chapterCount}</b>\n🔗 Links: <b>${linkCount}</b>`,
       );
+      await wait(REQUEST_GAP_MS);
     }
   }
 
