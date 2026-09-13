@@ -115,6 +115,18 @@ curl -X POST https://<app-name>.herokuapp.com/api/public/telegram/tick \
 
 Automatic Deploys enabled hone par `main` branch par har successful GitHub push Heroku deploy trigger karega. Manual deploy ke liye Deploy tab me latest `main` branch ke saamne **Deploy Branch** click karo.
 
+## Batch text file export
+
+Batch menu me **📥 Get Batch Text File** se lectures aur notes ke links ek
+`.txt` file me milte hain. Export jobs Supabase me persist hote hain, isliye
+dyno restart ke baad stale jobs safely resume ho sakte hain.
+
+Feature deploy karne se pehle
+`supabase/migrations/20260913093000_create_pw_txt_jobs.sql` configured Supabase
+database par apply hona zaroori hai. Migration active duplicate exports ko
+block karti hai aur concurrent workers ke liye atomic job claiming add karti
+hai.
+
 ## 5. Basic live test
 
 1. `https://pw-testing-f2635b89a1ca.herokuapp.com/` kholo.

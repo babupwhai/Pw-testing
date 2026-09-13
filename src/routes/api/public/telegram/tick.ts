@@ -22,10 +22,18 @@ export const Route = createFileRoute("/api/public/telegram/tick")({
     handlers: {
       POST: async ({ request }) => {
         if (!(await authorized(request))) return new Response("Unauthorized", { status: 401 });
+        const { recoverInterruptedTxtJobs, startTxtWorkerInBackground } =
+          await import("@/lib/pwtxt.server");
         if (request.headers.get("x-telegram-recover-interrupted") === "1") {
           await recoverInterruptedJobs();
+          await recoverInterruptedTxtJobs();
         }
-        return Response.json({ ok: true, started: startQueueInBackground() });
+        const txtStarted = startTxtWorkerInBackground();
+        return Response.json({
+          ok: true,
+          started: startQueueInBackground(),
+          txtStarted,
+        });
       },
     },
   },

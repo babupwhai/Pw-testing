@@ -433,6 +433,7 @@ async function handleCommand(
             "1️⃣ <b>Batch ka naam</b> ya <b>batch ID</b> bhejo — subjects, chapters aur lectures yahi khulenge, lecture par tap karo aur video aa jayega.",
             "2️⃣ Koi bhi <b>link</b> bhejo — mp4, pdf, zip, m3u8 — main file yahi bhej dunga.",
             "3️⃣ Ek <code>.txt</code> file bhejo jisme links hain — sab line by line aa jayenge.",
+            "4️⃣ Batch me <b>📥 Get Batch Text File</b> tap karo — lectures aur notes ke links ek file me milenge.",
             "",
             `Aaj: <b>${used}/${limit}</b> uploads.`,
           ].join("\n"),

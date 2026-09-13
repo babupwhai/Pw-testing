@@ -94,6 +94,15 @@ export async function showBatch(chatId: number, messageId: number | null, batchI
   }
   const todayToken = await saveNav({ t: "today", batchId, batchName: info.name });
   rows.unshift([{ text: "📅 Today's classes", callback_data: `p:td:${todayToken}` }]);
+  const txtToken = await saveNav({
+    t: "txt",
+    batchId,
+    batchName: info.name,
+    chatId,
+  });
+  rows.unshift([
+    { text: "📥 Get Batch Text File", callback_data: `p:txt:${txtToken}` },
+  ]);
   await panel(
     chatId,
     messageId,
@@ -326,6 +335,18 @@ export async function handlePwCallback(
     await answer();
     if (kind === "b") {
       await showBatch(chatId, messageId, nav["batchId"] as string);
+    } else if (kind === "txt") {
+      if (Number(nav["chatId"]) !== chatId) {
+        await sendMessage(chatId, "❌ Ye export button is chat ke liye valid nahi hai.");
+        return;
+      }
+      const { enqueueBatchTxt } = await import("@/lib/pwtxt.server");
+      await enqueueBatchTxt(
+        chatId,
+        telegramId,
+        nav["batchId"] as string,
+        (nav["batchName"] as string) ?? "Batch",
+      );
     } else if (kind === "s") {
       await showTopics(chatId, messageId, nav as unknown as SubjectNav, 0);
     } else if (kind === "tp") {
